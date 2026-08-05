@@ -1,6 +1,6 @@
 # Linotype 压力测试场景
 
-> 6 个测试场景，覆盖 linotype 通用排版 skill 的核心管线（LaTeX 引擎）、纪律约束、错误恢复、边界情况与自动版面调整（autofit）。
+> 8 个测试场景，覆盖 linotype 通用排版 skill 的核心管线（LaTeX 引擎）、纪律约束、错误恢复、边界情况、自动版面调整（autofit）、图片支持与视觉验收闭环。
 > 每个场景独立可执行，包含完整的前置条件、任务描述、预期行为和通过标准。
 > 引擎：xelatex（pdfLaTeX 会被类拒绝）。管线：plates/*.md → build.py → xelatex → pdfcheck。
 
@@ -125,6 +125,41 @@
 - 纸张（paper/landscape/plates）绝不被 autofit 改动
 
 **通过标准**：四类场景行为正确 = autofit 有界、双向、诚实、可关闭。
+
+---
+
+## Scenario 7: Main-Aside 结构性修复（顶层化重构）
+
+**类型**：正向 · 架构验证
+
+**描述**：双版 + main-aside 布局的内容超高曾是不可修复的 boxed multicol 限制（111% 溢出）。2026-08-05 顶层化重构（mainstory 手动 vsplit 两栏 + 收集式 mainaside）后，真实内容应 0 Overfull。
+
+**前置条件**：`~/news/latex/` 有重构后的 linotype.cls。
+
+**任务**：
+1. 构造 main-aside 版（含 STORY-B/C 侧栏故事 + BRIEFS）→ `build.py ... --docopts "paper=a3,landscape,columns=3,plates=2" --no-autofit`
+2. 编译 → 断言 `Overfull plate` 数量 = 0
+
+**预期**：mainaside 内部 vsplit 截断（内容超高截断到版心预算 + 警告），pullquote/inbrief 在栏内（不追加在外）。
+
+**通过标准**：0 Overfull plate = 结构性缺陷修复。
+
+## Scenario 8: 图片支持 + 视觉验收
+
+**类型**：正向 + 负向 · 新能力验证
+
+**描述**：IMAGE 字段 → `\photo` 原子；图片高度计入溢出检测（超大图 Overfull 不静默）；`--visual` 渲染 → 像素诊断 → 修复建议。
+
+**前置条件**：PIL（生成测试图）；pixelcheck.py。
+
+**任务**：
+1. **正常图**：`IMAGE: img.jpg` + 图注 → 编译 → 图片显示（pdfcheck 无溢出）
+2. **超大图**：高图 → 编译 → `Overfull plate` 出现（图片过大检测到）
+3. **视觉验收**：`--visual` → 渲染 + pixelcheck 报告（空白带位置 + 修复建议）
+
+**预期**：图片渲染、溢出不静默、视觉报告可读。
+
+**通过标准**：三类行为正确 = 图片支持 + 视觉闭环可用。
 
 ---
 

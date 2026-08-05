@@ -109,13 +109,31 @@
     \if@displayfontset\else\def\@displayfont{Playfair Display}\fi
     \if@accentset\else\def\@accent{1A1A1A}\fi
     \if@inktextset\else\def\@ink{1A1A1A}\fi
+  \else\ifnum\strcmp{\@theme}{financial}=0
+    % 金融: 深绿强调（华尔街日报风）
+    \if@bodyfontset\else\def\@bodyfont{Newsreader}\fi
+    \if@displayfontset\else\def\@displayfont{Playfair Display}\fi
+    \if@accentset\else\def\@accent{0F5132}\fi
+    \if@inktextset\else\def\@ink{1A1A1A}\fi
+  \else\ifnum\strcmp{\@theme}{sport}=0
+    % 体育: 高对比亮橙 + 无衬线标题（动感）
+    \if@bodyfontset\else\def\@bodyfont{Newsreader}\fi
+    \if@displayfontset\else\def\@displayfont{Inter}\fi
+    \if@accentset\else\def\@accent{E64A19}\fi
+    \if@inktextset\else\def\@ink{1A1A1A}\fi
+  \else\ifnum\strcmp{\@theme}{literary}=0
+    % 文学: 深棕 + 衬线（书卷气）
+    \if@bodyfontset\else\def\@bodyfont{Bitstream Charter}\fi
+    \if@displayfontset\else\def\@displayfont{Playfair Display}\fi
+    \if@accentset\else\def\@accent{5D4037}\fi
+    \if@inktextset\else\def\@ink{1A1A1A}\fi
   \else
     % newspaper(默认): Newsreader + 深红强调
     \if@bodyfontset\else\def\@bodyfont{Newsreader}\fi
     \if@displayfontset\else\def\@displayfont{Playfair Display}\fi
     \if@accentset\else\def\@accent{8C1D18}\fi
     \if@inktextset\else\def\@ink{1A1A1A}\fi
-  \fi\fi
+  \fi\fi\fi\fi\fi
 }
 \newcommand{\linotypesetup}[1]{%
   \setkeys{linotype}{#1}%
@@ -183,6 +201,17 @@
 \newlength{\padSide}\setlength{\padSide}{15mm}
 \newlength{\contentW}\newlength{\contentH}
 \newbox\linotype@platebox  % plate 内容收集盒（vsplit 截断用）
+% mainstory 手动 vsplit 两栏用的盒/长度（2026-08-05 顶层化重构）
+\newbox\linotype@mainbox    % 正文收集盒（按半宽排）
+\newbox\linotype@splitbox   % vsplit 切出的左栏
+\newbox\linotype@asidebox   % asidestory 内容盒
+\newbox\linotype@headerbox  % mainstory 报头收集盒（量高度用）
+\newlength\linotype@halfW   % 半栏宽 = (mainW - colGap)/2
+\newlength\linotype@colH    % 每栏高度预算
+\newlength\linotype@headerH % mainstory 报头高度
+\newbox\linotype@maincol    % mainaside 主栏收集盒（2026-08-05 顶层化重构）
+\newbox\linotype@asidecol   % mainaside 侧栏收集盒
+\newbox\linotype@tmpbox     % 渲染临时盒
 \newlength{\colGap}\setlength{\colGap}{3.75mm}
 \newlength{\colW}\newlength{\mainW}
 \newlength{\boundary}
@@ -317,61 +346,137 @@
 }
 
 % 主栏+侧栏布局（报纸经典: main 跨 2 栏 + aside 第 3 栏）
-% CSS 版 P2-P4 用此布局（.main-col grid-column: 1/span 2 + .aside-col 第 3 栏），
-% 内容在 9.5pt 下放得下 261mm 版心；而 3 等栏每栏窄 → 行数多 → 超高 105pt。
-% 用法:
-%   \begin{mainaside}
-%     \mainstory{眉题}{标题}{导语}{署名}{body段...}   — 主栏（2 栏分栏）
-%     \asidestory{标题}{body段...}                    — 侧栏（第 3 栏）
-%     \asidestory{标题}{body段...}
-%   \end{mainaside}
+% 2026-08-05 顶层化重构: 收集式架构——mainstory/asidestory 渲染到各自的收集盒，
+% 环境结束时统一 vsplit 截断到版心并并排输出。彻底解决:
+%  1) 旧 minipage 结构缺陷: asidestory 全排在 main minipage 内（aside 空）→ main 超高
+%  2) multicol boxed 限制: mainstory 手动 vsplit 两栏（绕开 boxed，实测平衡 429.6/430.0）
 % 几何: main 宽 = 2×57.5 + 3.75 = 118.75mm; aside 宽 = 57.5mm
 \newlength{\asideW}
 \newenvironment{mainaside}{%
   \par\noindent%
   \setlength{\mainW}{0.6666\contentW + \colGap}%   % 2 栏 + 1 沟 = 118.75mm
   \setlength{\asideW}{0.3333\contentW - \colGap}%  % 1 栏 - 沟 = 57.5mm
-  \begin{minipage}[t]{\mainW}%
-    \setlength{\parindent}{1em}%
+  \global\setbox\linotype@maincol=\vbox{}%          % 清空收集盒
+  \global\setbox\linotype@asidecol=\vbox{}%
 }{%
-  \end{minipage}%
-  \hspace{\colGap}%
-  \begin{minipage}[t]{\asideW}%
-    \setlength{\parindent}{1em}%
-  \end{minipage}%
+  % main 栏截断到版心（防 header + 两栏 > contentH 的残余溢出）
+  \ifdim\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax>\contentH
+    \typeout{Overfull main column: 内容 \the\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax pt > contentH \the\contentH，截断}%
+    \setbox\linotype@maincol=\vsplit\linotype@maincol to\dimexpr\contentH-10pt
+  \fi
+  % aside 栏截断到版心（多 story 累计超高的兜底）
+  \ifdim\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol>\contentH
+    \typeout{Overfull aside column: 内容 \the\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol\relax pt > contentH \the\contentH，截断}%
+    \setbox\linotype@asidecol=\vsplit\linotype@asidecol to\dimexpr\contentH-10pt
+  \fi
+  % 并排输出: vtop 自然高（不用 to\contentH——vtop to 的 ht 参考点偏移导致
+  % hbox 总高超 5.5pt，且报纸允许列尾空隙=欠满，无需强制填满）
+  \par\noindent\hbox to\contentW{%
+    \vtop{\hsize\mainW \linewidth\mainW\unvbox\linotype@maincol}%
+    \hspace{\colGap}%
+    \vtop{\hsize\asideW \linewidth\asideW\unvbox\linotype@asidecol}%
+  }%
+  \par\vspace{0.5mm}%
 }
 
-% 主栏故事: 2 栏分栏正文
+% 主栏故事: 手动 vsplit 两栏（2026-08-05 顶层化重构）
+% 血泪: multicol 在 minipage 内（boxed）跳过 \@colroom 封顶（multicol.sty:760），
+% 内容超高排自然高，且 plate 的 vsplit 切不动内嵌 multicol 整盒 → 溢出页面底。
+% 解法: 内容按半宽排进 vbox，\vsplit 动态切半（probe 实测左右栏 429.6/430.0pt
+% 平衡），超高时截断到版心预算 + Overfull 警告——完全绕开 boxed 限制。
+% 渲染结果追加进 \linotype@maincol（mainaside 结束统一截断并排）。
 \newcommand{\mainstory}[5]{%
-  \kicker{#1}%
-  \headline{#2}%
-  \deck{#3}%
-  \byline{#4}%
-  \global\@colht\contentH%
-  \global\@colroom\contentH%
-  \begin{multicols}{2}%
-    \storybody
-    #5%
-  \end{multicols}%
-  \global\@colht\textheight%
-  \global\@colroom\textheight%
+  \setbox\linotype@tmpbox=\vbox{%
+    \hsize\mainW \linewidth\mainW
+    \kicker{#1}%
+    \headline{#2}%
+    \deck{#3}%
+    \byline{#4}%
+    % 正文按半宽排: halfW = (mainW - colGap)/2（两栏 + 沟 = mainW）
+    \setlength{\linotype@halfW}{0.5\dimexpr\mainW-\colGap\relax}%
+    \setbox\linotype@mainbox=\vbox{%
+      \hsize\linotype@halfW \linewidth\linotype@halfW
+      \storybody
+      #5%
+    }%
+    % 每栏预算: 平衡（自然高/2）但有版心上限 (contentH - 已用)/2（近似 header + 余量）
+    \setlength{\linotype@colH}{0.5\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox\relax}%
+    \setlength{\linotype@colH}{\minof{\linotype@colH}{0.5\dimexpr\contentH-60pt\relax}}%
+    % vsplit 切两栏（左右都截断到 colH，超高 → Overfull 警告）
+    \setbox\linotype@splitbox=\vsplit\linotype@mainbox to\linotype@colH
+    \ifdim\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox>\linotype@colH
+      \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@colH\relax pt}%
+      \setbox\linotype@mainbox=\vsplit\linotype@mainbox to\linotype@colH
+    \fi
+    % 并排两栏（vtop to colH 固定栏高 + vss 吸收）
+    \par\noindent\hbox to\mainW{%
+      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@splitbox\vss}%
+      \hfil
+      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@mainbox\vss}%
+    }%
+    \par\vspace{1mm}%
+  }%
+  \global\setbox\linotype@maincol=\vbox{\unvbox\linotype@maincol\unvbox\linotype@tmpbox}%
 }
 
-% 侧栏故事: 单栏正文
+% 侧栏故事: 渲染到临时盒 → 追加进 \linotype@asidecol（mainaside 结束统一截断）
 \newcommand{\asidestory}[2]{%
-  \subheadline{#1}%
-  \par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*95/100\relax}{\dimexpr\linotype@bs*123/100\relax}\selectfont #2}%
-  \vspace{1.5mm}%
+  \setbox\linotype@tmpbox=\vbox{%
+    \hsize\asideW \linewidth\asideW
+    \subheadline{#1}%
+    \par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*95/100\relax}{\dimexpr\linotype@bs*123/100\relax}\selectfont #2}%
+    \vspace{1.5mm}%
+  }%
+  \global\setbox\linotype@asidecol=\vbox{\unvbox\linotype@asidecol\unvbox\linotype@tmpbox}%
+}
+
+
+% 侧栏 In Brief 摘要条（main-aside 布局用）: 单列堆叠 3 条，宽度自适应 \asideW
+% 2026-08-05: 通栏 \inbrief 在 mainaside 外必超高（mainaside 已占满版心）——移入 aside 栏
+\newcommand{\asidebriefs}[4]{%
+  \setbox\linotype@tmpbox=\vbox{%
+    \hsize\asideW \linewidth\asideW
+    \vspace{0.5mm}%
+    {\fontsans\fontsize{\dimexpr\linotype@bs*79/100\relax}{\dimexpr\linotype@bs*95/100\relax}\selectfont\addfontfeature{LetterSpace=12}\textbf{#1}}\\[0.5mm]
+    \noindent\rule{\asideW}{0.4pt}\\[1mm]
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #2}\par\vspace{0.8mm}%
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #3}\par\vspace{0.8mm}%
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #4}%
+  }%
+  \global\setbox\linotype@asidecol=\vbox{\unvbox\linotype@asidecol\unvbox\linotype@tmpbox}%
+}
+
+% 图片（2026-08-05 新增，借鉴 papertex \image）:
+%   \photo{路径}{宽度比例}{图注}    — 宽度 = 比例 × \linewidth，高度由纵横比决定
+%   \photo{img.jpg}{1.0}{图注文字}   — 全版宽图
+%   \photo{img.jpg}{0.5}{图注文字}   — 半版宽图
+% 图片 box 直接进 plate vbox → 高度天然计入溢出检测（图片过大 → Overfull，
+% 不静默、不跳过——比 papertex 的 \page@free 估算+跳过更精确）。
+% 图注: 小字居中 + 上下细线（仿 papertex \papertex@pictureCaption）。
+\newcommand{\photo}[3]{%
+  \par\vspace{1mm}%
+  \noindent\rule{\linewidth}{0.4pt}%
+  \vspace{1mm}\par
+  \begin{center}
+  \includegraphics[width=\dimexpr#2\linewidth\relax,keepaspectratio]{#1}%
+  \end{center}
+  \vspace{0.8mm}\par
+  {\fontsans\fontsize{\dimexpr\linotype@bs*74/100\relax}{\dimexpr\linotype@bs*89/100\relax}\selectfont
+  \addfontfeature{LetterSpace=4}\color{accent}\textbf{\MakeUppercase{#3}}}%
+  \vspace{0.8mm}\par
+  \noindent\rule{\linewidth}{0.4pt}%
+  \par\vspace{1mm}%
 }
 
 % 引文框：上 accent 下 ink 细线，19pt 斜体
+% 宽度自适应 \linewidth（contentW 上下文=全版引文；halfW 正文盒内=栏内引文）
 \newcommand{\pullquote}[1]{%
   \par\vspace{0.5mm}%
-  \noindent\rule{\contentW}{0.4pt}%
+  \noindent\rule{\linewidth}{0.4pt}%
   \vspace{0.8mm}\par
   {\fontbody\fontsize{\dimexpr\linotype@bs*200/100\relax}{\dimexpr\linotype@bs*221/100\relax}\selectfont\itshape#1\par}%
   \vspace{0.8mm}\par
-  \noindent\rule{\contentW}{0.4pt}%
+  \noindent\rule{\linewidth}{0.4pt}%
   \par\vspace{0.5mm}%
 }
 

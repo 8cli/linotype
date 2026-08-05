@@ -28,7 +28,9 @@ Its core differentiator is **fixed-viewport layout**: content is typeset into a 
 - **Autofit (default on)** — content too long? The engine automatically shrinks the body font (8.5–11pt) and adjusts column count (2–4) until the layout converges — zero manual tuning. Bounded: paper is a hard constraint, never auto-changed; underfilled pages are not force-filled
 - **Theme system** — `newspaper` (serif + deep red), `magazine` (Charter + deep blue), `brief` (monochrome); explicit font/color settings always win
 - **Markdown field format** — plates are plain text with `KICKER:`, `HEADLINE:`, `BODY:` etc. field labels; no HTML, no CSS, no DOM
+- **Image support** — `IMAGE:` / `IMAGEWIDTH:` / `IMAGECAPTION:` fields render via `\photo`; image height is measured precisely into the overflow machinery (oversized → `Overfull plate`, never silently skipped)
 - **Compile-time overflow detection** — `Overfull plate` warnings are emitted by the engine itself; underfull (sparse) pages are filtered as non-defects
+- **Visual acceptance loop** (`--visual`) — renders the PDF, runs pixel-level column-gap diagnostics, and reports fix suggestions (inspired by PaperFit)
 - **No blank pages** — overflow is truncated with `vsplit` instead of pushing the plate to the next page
 - **Fonts via fontconfig** — any installed font family works (`Newsreader`, `Playfair Display`, `Inter` ship-ready; swap with `bodyfont=...`)
 - **Engine discipline** — XeLaTeX required, pdfLaTeX rejected at load time (fontspec dependency)
@@ -155,6 +157,7 @@ Linotype treats typesetting as a **build with warnings**:
 | Compile | class | `Underfull \vbox` | **Filtered** (`\vbadness=10000`) — sparse pages are not defects in newspaper layout |
 | Post | `pdfcheck.py` | Log errors, MediaBox, embedded fonts (≥3), page count | Any mismatch |
 | Post | `pixelcheck.py` | Column gaps / bottom overflow on rendered PNG | Blank bands in production pages |
+| Visual | `--visual` | Render → pixelcheck diagnostics → fix suggestions | Blank bands reported as a visual gate |
 
 ```bash
 # Regression suite (positive + negative matrix, runs in a temp dir)
@@ -185,9 +188,11 @@ The result: real newspaper content typesets at 151–222mm inside a 281mm viewpo
 
 ## Known Limitations
 
-- **Pure text** — no image/figure support yet (planned)
-- **Dual-plate + `main-aside`** — the aside's multicol runs inside a minipage and is not height-capped by `\@colht` (a known multicol boxed-mode behavior); overflow is caught by the `Overfull plate` warning. Autofit's font knob helps but its column knob is fixed at 2 columns for this layout — content may not fully converge. Single-plate mode has no such issue.
+- **No text-wrap images** — `IMAGE:` is a plate-top / between-element figure (`\photo`); inline floated images are not yet supported
+- **Autofit does not scale image width** — images keep their fixed column width; if an image itself overflows, autofit honestly reports "replace/remove/shrink the image"
 - **Autofit scales fonts, not spacing** — the column-count knob is a U-shaped curve (for very long content, 4 columns can be worse than 3); autofit reports the historical best attempt on failure
+
+> **Fixed (2026-08-05)**: dual-plate + `main-aside` overflow — mainstory switched from boxed multicol to manual vsplit columns; real content now typesets at 0 `Overfull plate` (was 111% overflow).
 
 ## Requirements
 

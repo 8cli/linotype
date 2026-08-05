@@ -107,9 +107,36 @@ loop:
 
 Monotone in each direction, so no oscillation; worst case ~9 compiles (~30s), hard-capped at 16. The bottom-margin knob is the architectural equivalent of `\enlargethispage` (which cannot work here — plate boxes have fixed `\contentH`).
 
-### Known interplay with dual-plate + main-aside
+### The main-aside fix: manual vsplit columns (top-level refactor)
 
-The `mainstory` multicol is hard-coded to 2 columns (newspaper classic layout), so the column knob has **no effect** on that layout; only the font knob helps. Measured: real P2–P4 overflow 132% → 111% at minimum font — insufficient to fully converge. Autofit reports this honestly as "cannot fit within bounds" (exit 1, PDF preserved).
+Dual-plate + `main-aside` was the engine's one structural defect: the mainstory multicol runs inside a minipage (boxed mode), which skips the `\@colroom` cap (multicol.sty:760) — content typesets to its natural height and the plate's `vsplit` cannot cut a boxed multicol block. Measured: real P2–P4 overflowed 111% even at minimum font.
+
+The 2026-08-05 top-level refactor replaces the minipage-inner multicol with **manual vsplit columns**:
+
+```
+content set at target column width (halfW) → vbox
+colH = min(natural/2, (contentH − header)/2)      % balanced, bounded
+left  = vsplit(mainbox, colH); right = vsplit(mainbox, colH)
+\hbox to mainW{ top{left} \hfil top{right} }   % box-parallel is legal (only multicol is boxed-restricted)
+```
+
+Verified: left/right balance at 429.6/430.0pt (0.4pt off). Overrunning content truncates at the budget with an `Overfull mainstory` warning. Two more fixes fell out of the same refactor:
+- **full-width content after a full plate always overflows** (measured pullquote +127pt, inbrief +122pt) → pullquote moved into the mainstory body (column-width `\linewidth` quote); BRIEFS become `\asidebriefs`, a single-column stack in the aside.
+- **`\vtop to` ht reference-point offset** — side-by-side measurement exceeds the target by ~5.5pt (first-line baseline); parallel containers use natural-height `\vtop` (column-end gaps are legal underfill in newspaper layout).
+
+Result: real dual-plate main-aside content goes 111% overflow → **0 Overfull**, fill 89–99%, content bottom 256/280mm < 281mm viewport. Regression 25/25.
+
+## Image support (`\photo`)
+
+`IMAGE:` / `IMAGEWIDTH:` / `IMAGECAPTION:` fields render as `\photo{path}{width-factor}{caption}` — `\includegraphics[width=factor×\linewidth,keepaspectratio]` in a framed, captioned box. The image box flows directly into the plate vbox, so its height is **measured precisely** by the existing overflow machinery (oversized image → `Overfull plate`, never silently skipped). This is strictly better than papertex's approach (`1.5×width + 50pt` estimate vs `\page@free`, skip-if-tight): we measure, not estimate.
+
+## Visual acceptance loop (`--visual`)
+
+Borrowed from PaperFit: after autofit converges, `--visual` renders the PDF to PNGs (110dpi), runs `pixelcheck.py --layout-file layout.json` per page, and reports column-gap diagnostics with fix suggestions:
+- blank band at the page bottom → content is sparse (autofit already grew font / dropped columns; add content or accept)
+- blank band mid-column → balance issue (review that plate's content distribution)
+
+The report is a **gate**, not an auto-fixer: it surfaces visual problems the compile-time fill metric tolerates (e.g. fill 49% passes the ≥45% floor, yet a 106mm bottom band is visually sparse).
 
 ## QA layers
 
@@ -120,6 +147,16 @@ The `mainstory` multicol is hard-coded to 2 columns (newspaper classic layout), 
 | Post-process | `pdfcheck.py` — log scan, MediaBox, embedded fonts ≥3, page count | any structural mismatch |
 | Pixel-level | `pixelcheck.py` — column-gap analysis of rendered PNG | blank bands in production pages |
 | Regression | `tests/run_tests.py` — positive/negative matrix (10 tests) | any pipeline regression |
+
+## PDF/A archival output
+
+XeLaTeX does not emit native PDF/A. For archival-grade output, convert with Ghostscript after the build:
+
+```bash
+gs -dPDFA=2 -dBATCH -dNOPAUSE -sProcessColorModel=DeviceRGB    -sDEVICE=pdfwrite -sOutputFile=out-pdfa.pdf out.pdf
+```
+
+A future `pdfcheck.py --pdfa` check can verify the `OutputIntent` entry.
 
 ## Known limitations (accepted)
 

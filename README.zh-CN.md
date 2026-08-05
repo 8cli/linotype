@@ -28,7 +28,9 @@ Linotype 是一个**配置驱动的通用 LaTeX 排版引擎**，不绑定任何
 - **Autofit 自动版面调整（默认开启）** — 内容超高/太空时自动缩放大字号（8.5–11pt）与栏数（2–4）直至收敛，零手工调参。**有边界**：纸张是硬约束绝不动；欠满不强行填满
 - **主题系统** — `newspaper`（衬线+深红）/ `magazine`（Charter+深蓝）/ `brief`（单色）；显式字体/颜色永远优先于主题
 - **Markdown 字段化** — plates 是带 `KICKER:`/`HEADLINE:`/`BODY:` 字段标签的纯文本；无 HTML、无 CSS、无 DOM
+- **图片支持** — `IMAGE:`/`IMAGEWIDTH:`/`IMAGECAPTION:` 字段渲染为 `\photo`；图片高度精确计入溢出检测（超大图 → `Overfull plate`，绝不静默跳过）
 - **编译期溢出检测** — `Overfull plate` 警告由引擎自身发出；欠满（内容偏少）被过滤为非缺陷
+- **视觉验收闭环**（`--visual`）— 渲染 PDF → 像素级列空隙诊断 → 修复建议（借鉴 PaperFit）
 - **无空白首页** — 溢出用 `vsplit` 截断兜底，绝不把版推到下一页
 - **字体走 fontconfig** — 任意已装字体族名即用（`Newsreader`/`Playfair Display`/`Inter` 开箱即用，`bodyfont=...` 可换）
 - **引擎纪律** — 只用 XeLaTeX，pdfLaTeX 在加载时被类拒绝（fontspec 依赖）
@@ -154,6 +156,7 @@ Linotype 把排版当作**带警告的构建**：
 | 编译 | 类 | `Underfull \vbox` | **已过滤**（`\vbadness=10000`）——报纸版式允许列尾空隙 |
 | 后处理 | `pdfcheck.py` | 日志错误、MediaBox、字体嵌入（≥3）、页数 | 任一不匹配 |
 | 后处理 | `pixelcheck.py` | 渲染 PNG 的列空隙/底部溢出 | 正式版面出现空白带 |
+| 视觉 | `--visual` | 渲染 → pixelcheck 诊断 → 修复建议 | 空白带作为视觉门禁报告 |
 
 ```bash
 # 回归测试（正负向矩阵，临时目录运行）
@@ -184,9 +187,11 @@ python3 tests/run_tests.py /path/to/engine
 
 ## 已知限制
 
-- **纯文字** — 暂不支持图片/图表（规划中）
-- **双版 + `main-aside`** — 侧栏 multicol 在 minipage 内不受 `\@colht` 限高（multicol boxed 模式已知行为）；溢出由 `Overfull plate` 警告捕获。autofit 字号旋钮可缓解，但该布局主栏固定 2 栏（栏数旋钮无效），可能无法完全收敛。单版模式无此问题。
+- **无图文混排** — `IMAGE:` 是版顶/版间图（`\photo`），暂不支持文字环绕
+- **autofit 不缩图片宽度** — 图片固定版宽；图片本身过大导致溢出时诚实报告"请换图/删图/减图宽"
 - **autofit 只缩放宽高比例，不改间距** — 栏数旋钮是 U 形曲线（超长内容 4 栏可能差于 3 栏）；失败时报告历史最佳尝试
+
+> **已修复（2026-08-05）**：双版 + `main-aside` 溢出——mainstory 从 boxed multicol 改为手动 vsplit 两栏；真实内容 0 Overfull（此前 111% 溢出）。
 
 ## 环境要求
 

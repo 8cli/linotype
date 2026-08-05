@@ -31,7 +31,10 @@ xelatex -interaction=nonstopmode -halt-on-error out.tex
 # 3. PDF 后处理检查（编译期 QA 的补充）
 python3 pdfcheck.py out.pdf --log out.log --paper a3 --landscape --pages 2
 
-# 4. 像素目检（可选，复用 CSS 时代工具 pixelcheck.py）
+# 4. 视觉验收闭环（可选，--visual: 渲染 → 像素诊断 → 修复建议）
+python3 build.py plates/ out.tex --docopts "..." --visual
+
+# 5. 像素目检（手动，复用 CSS 时代工具 pixelcheck.py）
 pdftoppm -png -r 60 out.pdf page
 python3 ~/.claude/skills/linotype/scripts/pixelcheck.py page-1.png --layout auto
 ```
@@ -44,6 +47,9 @@ python3 ~/.claude/skills/linotype/scripts/pixelcheck.py page-1.png --layout auto
 LAYOUT: main-aside        # 可选: ''(等宽多栏,默认) | main-aside(主栏2栏+侧栏1栏)
 COLUMNS: 3                # 可选: 版独立列数（覆盖 --docopts 的全局 columns）
 EXPANDEDTITLE: 跨栏标题    # 可选: 全版宽标题，打破所有栏
+IMAGE: img.jpg            # 可选: 图片路径（相对 plates 目录或绝对）
+IMAGEWIDTH: 1.0           # 可选: 图宽占版宽比例 0-1（默认 1.0 全版宽）
+IMAGECAPTION: 图注        # 可选
 KICKER: 眉题
 HEADLINE: 主标题
 SUBHEADLINE: 副标题        # 可选
@@ -106,6 +112,7 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 | `\pullquote{引文}` | 引文框（上下细线） |
 | `\inbrief{标题}{条1}{条2}{条3}` | In Brief 摘要条（3 栏） |
 | `\expandedtitle{标题}` | 跨栏标题（全版宽，打破所有栏，借鉴 papertex） |
+| `\photo{路径}{宽比例}{图注}` | 图片（宽度=比例×版宽，高度天然计入溢出检测，借鉴 papertex） |
 | `mainaside` 环境 | 主栏 2 栏 + 侧栏 1 栏（报纸经典） |
 | `\mainstory{眉题}{标题}{导语}{署名}{正文}` | mainaside 主栏故事 |
 | `\asidestory{标题}{正文}` | mainaside 侧栏故事 |
@@ -124,7 +131,8 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
    - `Underfull \vbox` 已全局过滤（欠满非缺陷）
    - `Overfull \hbox` 微溢出 = 行内长词，可接受
 3. **pdfcheck.py**：LOG OVERFLOW（Overfull plate > 0 → FAIL）、LOG ERROR、MEDIA BOX（纸张尺寸）、FONTS（≥3 种嵌入）、PAGES。退出码 0 = 通过。
-4. **pixelcheck.py**（可选）：PDF → PNG 后检查列空白/底部溢出（版心底 ≤ 281mm）。
+4. **--visual 视觉验收闭环**（可选）：autofit 收敛后渲染 PDF → pixelcheck 诊断列空白/底部溢出 → 修复建议报告（借鉴 PaperFit）。空白带在版底 → 内容偏少提示；在栏中 → 栏平衡提示。
+5. **pixelcheck.py**（手动）：PDF → PNG 后检查列空白/底部溢出（版心底 ≤ 281mm）。
 5. **run_tests.py**（回归，改过 build.py/linotype.cls 后必跑）：
    ```bash
    python3 ~/.claude/skills/linotype/tests/run_tests.py ~/news/latex
@@ -139,9 +147,9 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 
 ## 已知限制
 
-- **双版 + main-aside 组合**：mainstory 的 multicol 在 minipage 内（boxed）不受 `\@colht` 限高，内容超高时排到页面底部（不推页、不出页面）。由 Overfull plate 警告检测；autofit 缩字号可缓解但未必收敛（mainstory 固定 2 栏，栏数旋钮无效）。单版模式无此问题（内容全在版心内）。
-- **autofit 的栏数旋钮对 main-aside 无效**：mainstory 硬编码 multicol{2}（报纸经典布局），只有字号旋钮生效。
-- **纯文字排版**：无图片/图表支持。
+- ~~双版 + main-aside 溢出~~ → **已修复（2026-08-05 顶层化重构）**：mainstory 从 boxed multicol 改为手动 vsplit 两栏（绕开 boxed 硬限制），真实内容 0 Overfull。pullquote/inbrief 移入栏内（通栏追加在版心已满时必超高）。
+- **图片无图文混排**：IMAGE 字段是版顶/版间图（`\photo`），不支持文字环绕（首版简化）。
+- **autofit 缩字号不改图片宽度**：图片固定版宽；图片过大导致溢出时 autofit 诚实报告"请换图/删图/减图宽"。
 
 ## 常见错误（血泪经验）
 
@@ -156,6 +164,9 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 9. **`\dimexpr` 必须用 `\relax` 终结** —— 空格会被跳过，后续 `/` 被当作除法运算符（"Missing number, treated as zero"）
 10. **测试/脚本里 build.py 记得 `--no-autofit`** —— autofit 默认开启会编译迭代（~3-35 秒），纯生成场景要显式关闭
 11. **栏数对 multicol 盒高是 U 形曲线** —— 超长内容增栏数可能变差（实测 120 段 3→4 栏 244%→271%）；autofit 失败时报告历史最佳而非边界配置
+12. **multicol boxed 是硬限制，手动 vsplit 两栏是解法** —— boxed 跳过 \@colroom 封顶且 vsplit 切不动整盒；内容按目标栏宽排 vbox → vsplit 动态切半 → 并排 vtop（实测平衡 429.6/430.0pt）
+13. **`\vtop to` 的 ht 参考点偏移** —— 并排测量会超目标 5.5pt（第一行基线）；并排容器用自然高 vtop，列尾空隙是报纸允许的欠满
+14. **版心已满时通栏内容必超高** —— mainaside 占满后 pullquote/inbrief 追加在外必溢出（实测 127/122pt）；移入栏内（栏内引文/侧栏摘要条）
 
 ## 何时使用 / 何时不用
 

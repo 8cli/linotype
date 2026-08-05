@@ -243,6 +243,75 @@ def test_autofit_disable(tmp: str) -> None:
            '有 .tex 无 .pdf' if tex_ok and not pdf_ok else '行为不符!')
 
 
+def test_mainaside_structural(tmp: str) -> None:
+    """C 顶层化重构: main-aside 布局双版 → 0 Overfull（结构性缺陷修复，此前 111% 溢出）。"""
+    write_plate(tmp, 'p1.md', """LAYOUT: main-aside
+KICKER: Main Story
+HEADLINE: Lead Story with Lots of Content
+DECK: A substantial deck that adds context.
+BYLINE: Linotype QA
+BODY:
+Paragraph 0: The quick brown fox jumps over the lazy dog while typesetting engines measure hyphenation quality across narrow columns in a dual-plate main-aside layout.
+Paragraph 1: Second paragraph with additional detail to increase the natural height of the main story column.
+Paragraph 2: Third paragraph continues with more words so the content genuinely stresses the column budget.
+STORY-B: Sidebar One
+Sidebar content for the first aside story with a few sentences of text.
+STORY-C: Sidebar Two
+More sidebar content for the second aside story.
+BRIEFS:
+**Brief One:** First brief item text.
+**Brief Two:** Second brief item text.
+**Brief Three:** Third brief item text.
+""")
+    r = run(['python3', 'build.py', 'plates/', 'ma.tex',
+             '--docopts', 'paper=a3,landscape,columns=3,plates=1', '--no-autofit'], cwd=tmp)
+    ok, log = xelatex(tmp, 'ma.tex')
+    report('C main-aside 编译', ok, '' if ok else log[-150:])
+    if not ok:
+        return
+    log_text = open(os.path.join(tmp, 'ma.log'), encoding='utf-8').read()
+    overfull = 'Overfull plate' in log_text
+    report('C main-aside 0 Overfull', not overfull,
+           '无溢出' if not overfull else '仍有溢出!(结构性缺陷未修)')
+
+
+def test_image_support(tmp: str) -> None:
+    """A 图片支持: IMAGE 字段 → \photo 生成 + 正常图编译 + 超大图溢出检测。"""
+    # 创建测试图（用 PIL 或纯色 PPM）
+    from PIL import Image
+    Image.new('RGB', (200, 150), (180, 40, 30)).save(os.path.join(tmp, 'img.jpg'), quality=85)
+    Image.new('RGB', (200, 1000), (30, 80, 180)).save(os.path.join(tmp, 'huge.jpg'), quality=80)
+    write_plate(tmp, 'p1.md', """KICKER: Photo
+HEADLINE: Image Test
+IMAGE: img.jpg
+IMAGEWIDTH: 1.0
+IMAGECAPTION: Test caption
+BODY:
+Body text after the image.
+""")
+    r = run(['python3', 'build.py', 'plates/', 'img.tex',
+             '--docopts', 'paper=a4,portrait,columns=2,plates=1', '--no-autofit'], cwd=tmp)
+    tex = open(os.path.join(tmp, 'img.tex'), encoding='utf-8').read()
+    report('A 图片字段生成', r.returncode == 0 and r'\photo{img.jpg}' in tex,
+           'photo 生成' if r'\photo{img.jpg}' in tex else '未生成!')
+    ok, log = xelatex(tmp, 'img.tex')
+    report('A 正常图编译', ok, '' if ok else log[-150:])
+    # 超大图 → Overfull（图片过大不静默）
+    write_plate(tmp, 'p1.md', """KICKER: Photo
+HEADLINE: Huge Image
+IMAGE: huge.jpg
+IMAGEWIDTH: 1.0
+BODY:
+Body text.
+""")
+    run(['python3', 'build.py', 'plates/', 'huge.tex',
+         '--docopts', 'paper=a4,portrait,columns=2,plates=1', '--no-autofit'], cwd=tmp)
+    ok2, log2 = xelatex(tmp, 'huge.tex')
+    log_text = open(os.path.join(tmp, 'huge.log'), encoding='utf-8').read()
+    report('A 超大图溢出检测', 'Overfull plate' in log_text,
+           '检测到' if 'Overfull plate' in log_text else '未检测到!')
+
+
 def main() -> int:
     latex_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser('~/news/latex')
     if not os.path.exists(os.path.join(latex_dir, 'linotype.cls')):
@@ -262,6 +331,8 @@ def main() -> int:
     test_autofit_sparse(tmp)
     test_autofit_boundary(tmp)
     test_autofit_disable(tmp)
+    test_mainaside_structural(tmp)
+    test_image_support(tmp)
 
     print(f'\n{len(PASSED)} PASS, {len(FAILED)} FAIL')
     return 1 if FAILED else 0

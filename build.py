@@ -70,7 +70,8 @@ def parse_plate(text: str) -> dict:
     """解析单个 plates/pN.md → 结构化 dict。"""
     p = {'kicker': '', 'headline': '', 'subheadline': '', 'deck': '',
          'byline': '', 'body': [], 'pullquote': '', 'briefs': [],
-         'stories': [], 'layout': '', 'columns': '', 'expanded': ''}  # layout: ''(等宽多栏) | 'main-aside'; columns: 版独立栏数; expanded: 跨栏标题
+         'stories': [], 'layout': '', 'columns': '', 'expanded': '',
+         'image': '', 'imagewidth': '1.0', 'imagecaption': ''}  # 图片: IMAGE 路径 / IMAGEWIDTH 比例(0-1) / IMAGECAPTION 图注
     lines = text.split('\n')
     section = 'body'
     story = None
@@ -83,6 +84,12 @@ def parse_plate(text: str) -> dict:
             p['columns'] = strip_field(ln[8:]); section = 'meta'
         elif up.startswith('EXPANDEDTITLE:') or up.startswith('EXPANDED:'):
             p['expanded'] = tex_escape(strip_field(ln.split(':', 1)[1])); section = 'meta'
+        elif up.startswith('IMAGE:'):
+            p['image'] = strip_field(ln.split(':', 1)[1]); section = 'meta'
+        elif up.startswith('IMAGEWIDTH:'):
+            p['imagewidth'] = strip_field(ln.split(':', 1)[1]); section = 'meta'
+        elif up.startswith('IMAGECAPTION:') or up.startswith('IMAGECAPTION:'):
+            p['imagecaption'] = tex_escape(strip_field(ln.split(':', 1)[1])); section = 'meta'
         elif up.startswith('KICKER:'):
             p['kicker'] = tex_escape(strip_field(ln[7:])); section = 'meta'
         elif up.startswith('HEADLINE:'):
@@ -128,17 +135,28 @@ def render_plate(p: dict, idx: int) -> str:
     out.append(r'\begin{plate}')
     if p['layout'] == 'main-aside':
         # 主栏+侧栏: 主 story 进 main 2 栏, 副 stories 进 aside 第 3 栏
+        # 2026-08-05 顶层化重构: mainaside 已占满版心时，通栏内容（pullquote/inbrief）
+        # 追加在外必超高（实测 pullquote 127pt / inbrief 122pt）——都移入栏内:
+        #   pullquote → mainstory 正文末尾（栏内引文，宽度自适应 \linewidth）
+        #   BRIEFS    → \asidebriefs（aside 栏底部单列条，进 aside 栏共享截断预算）
         body = _join_body(p['body'])
+        if p['image']:
+            body = r'\photo{' + p['image'] + '}{' + p['imagewidth'] + '}{' + p['imagecaption'] + '}' + r'\par ' + body
+        if p['pullquote']:
+            body += r'\par ' + r'\pullquote{' + p['pullquote'] + '}'
         out.append(r'\begin{mainaside}')
         out.append(r'\mainstory{' + p['kicker'] + '}{' + p['headline'] + '}{'
                    + p['deck'] + '}{' + p['byline'] + '}{' + body + '}')
         for st in p['stories']:
             st_body = _join_body(st['body'])
             out.append(r'\asidestory{' + st['headline'] + '}{' + st_body + '}')
+        if p['briefs']:
+            label = 'IN BRIEF'
+            items = p['briefs'][:3]
+            while len(items) < 3:
+                items.append('')
+            out.append(r'\asidebriefs{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
         out.append(r'\end{mainaside}')
-        if p['pullquote']:
-            out.append(r'\vspace{0.5mm}')
-            out.append(r'\pullquote{' + p['pullquote'] + '}')
     else:
         # 等宽多栏（默认）
         if p['kicker']:
@@ -153,6 +171,8 @@ def render_plate(p: dict, idx: int) -> str:
             out.append(r'\byline{' + p['byline'] + '}')
         if p['expanded']:
             out.append(r'\expandedtitle{' + p['expanded'] + '}')
+        if p['image']:
+            out.append(r'\photo{' + p['image'] + '}{' + p['imagewidth'] + '}{' + p['imagecaption'] + '}')
         if p['body']:
             col_opt = '[' + p['columns'] + ']' if p['columns'] else ''
             out.append(r'\begin{storycolumns}' + col_opt)
@@ -172,8 +192,8 @@ def render_plate(p: dict, idx: int) -> str:
             for para in st['body']:
                 out.append('')
                 out.append(r'\noindent ' + para if not para.startswith('\\noindent') else para)
-    # In Brief
-    if p['briefs']:
+    # In Brief（main-aside 已在分支内输出 \asidebriefs，此处仅等宽布局）
+    if p['briefs'] and p['layout'] != 'main-aside':
         label = 'IN BRIEF'
         items = p['briefs'][:3]
         while len(items) < 3:
@@ -451,6 +471,80 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
     return 1 if attempts and attempts[-1][3] else 0
 
 
+def visual_check(output: str, docopts: str, pixelcheck: str = '') -> int:
+    """视觉验收闭环（--visual，借鉴 PaperFit 渲染→诊断→建议）:
+    渲染 PDF → PNG → pixelcheck 列空白/溢出诊断 → 视觉报告 + 修复建议。
+
+    返回 0 = 视觉验收通过（无空白带）; 1 = 有空白带（报告位置 + 建议）。
+    """
+    pdf = os.path.splitext(output)[0] + '.pdf'
+    if not os.path.exists(pdf):
+        print('⚠️ 视觉验收跳过: 无 PDF（--no-autofit 未编译？先编译或去掉 --no-autofit）')
+        return 0
+    if not pixelcheck:
+        # 默认在仓库/skill 的 scripts/ 找
+        for cand in (os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts', 'pixelcheck.py'),
+                     os.path.expanduser('~/.claude/skills/linotype/scripts/pixelcheck.py')):
+            if os.path.exists(cand):
+                pixelcheck = cand
+                break
+    if not pixelcheck or not os.path.exists(pixelcheck):
+        print('⚠️ 视觉验收跳过: 未找到 pixelcheck.py（--pixelcheck PATH 指定）')
+        return 0
+
+    out_abs = os.path.abspath(output)
+    out_dir = os.path.dirname(out_abs)
+    stem = os.path.splitext(os.path.basename(out_abs))[0]
+    layout_json = os.path.join(out_dir, 'layout.json')
+    opts = parse_docopts(docopts)
+    dual = opts.get('plates') == '2'
+
+    print('\n=== 视觉验收（渲染 → 像素诊断）===')
+    # 1. 渲染 PDF → PNG（110dpi → pxmm = 4.331）
+    try:
+        subprocess.run(['pdftoppm', '-png', '-r', '110', pdf, os.path.join(out_dir, stem + '-v')],
+                       check=True, capture_output=True, timeout=300)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print('⚠️ 渲染失败: pdftoppm 不可用？')
+        return 0
+    import glob
+    pngs = sorted(glob.glob(os.path.join(out_dir, stem + '-v-*.png')))
+    if not pngs:
+        print('⚠️ 渲染失败: 无 PNG 输出')
+        return 0
+
+    # 2. 每页 pixelcheck 诊断
+    issues = []
+    for png in pngs:
+        cmd = ['python3', pixelcheck, png, '--pxmm', '4.331', '--layout-file', layout_json]
+        if dual:
+            cmd += ['--half', 'both']
+        else:
+            cmd += ['--full']
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        out = (r.stdout or '') + (r.stderr or '')
+        page = os.path.basename(png).replace(stem + '-v-', '').replace('.png', '')
+        if 'FAIL' in out:
+            # 提取空白带位置
+            gaps = [ln.strip() for ln in out.splitlines() if '空白带' in ln or '列' in ln and 'mm' in ln]
+            issues.append((page, gaps))
+            print(f'  [FAIL] 第 {page} 页: {len(gaps)} 处空白带')
+            for g in gaps[:4]:
+                print(f'    {g}')
+        else:
+            print(f'  [PASS] 第 {page} 页: 无空白带')
+
+    # 3. 视觉报告 + 修复建议
+    if issues:
+        print('\n  ❌ 视觉验收未通过: 存在列内空白带')
+        print('  修复建议:')
+        print('    - 空白带在版底 → 内容偏少: autofit 已尽量增大字号/减栏数，可补充内容或接受留白')
+        print('    - 空白带在栏中 → 栏平衡问题: 检查该版内容分布，或手动调字号')
+        return 1
+    print('\n  ✅ 视觉验收通过: 各版无异常空白带')
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description='plates/*.md → LaTeX 生成器（默认自动版面调整）')
     ap.add_argument('plates_dir', help='plates/ 目录')
@@ -463,17 +557,27 @@ def main() -> int:
                     help='主题: newspaper|magazine|brief（追加到 docopts）')
     ap.add_argument('--no-autofit', action='store_true',
                     help='关闭自动版面调整（默认开启: 溢出/太空自动调字号栏数，纸张不动）')
+    ap.add_argument('--visual', action='store_true',
+                    help='视觉验收闭环: autofit 收敛后渲染 PDF → pixelcheck 诊断列空白（借鉴 PaperFit）')
+    ap.add_argument('--pixelcheck', default='',
+                    help='pixelcheck.py 路径（--visual 时；默认自动探测 scripts/ 或 skill 目录）')
     args = ap.parse_args()
     if args.theme and f'theme={args.theme}' not in args.docopts:
         args.docopts = args.docopts.rstrip(',') + f',theme={args.theme}'
 
+    code = 0
     if args.no_autofit:
         tex_text, layouts = generate_tex(args.plates_dir, args.docopts, args.clsname)
         write_tex(args.output, tex_text, layouts)
         n = len([f for f in os.listdir(args.plates_dir) if f.endswith('.md')])
         print(f'已生成 {args.output} ({n} 版, --no-autofit)')
-        return 0
-    return autofit(args.plates_dir, args.output, args.docopts, args.clsname)
+    else:
+        code = autofit(args.plates_dir, args.output, args.docopts, args.clsname)
+    if args.visual:
+        vc = visual_check(args.output, args.docopts, args.pixelcheck)
+        if vc != 0:
+            code = vc
+    return code
 
 if __name__ == '__main__':
     sys.exit(main())

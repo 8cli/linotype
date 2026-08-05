@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TeX Live (XeLaTeX)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-xetex texlive-latex-extra texlive-fonts-recommended \
+            fonts-lmodern lmodern
+
+      - name: Install project fonts (Newsreader / Playfair Display / Inter)
+        run: |
+          mkdir -p "$HOME/.fonts"
+          curl -fsSL -o "$HOME/.fonts/Newsreader.ttf" \
+            "https://github.com/google/fonts/raw/main/ofl/newsreader/Newsreader%5Bopsz%2Cwght%5D.ttf"
+          curl -fsSL -o "$HOME/.fonts/PlayfairDisplay.ttf" \
+            "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/PlayfairDisplay%5Bwght%5D.ttf"
+          curl -fsSL -o "$HOME/.fonts/Inter.ttf" \
+            "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf"
+          fc-cache -f "$HOME/.fonts"
+          fc-list | grep -iE "newsreader|playfair|inter" || true
+
+      - name: Install Python dependencies
+        run: pip install --quiet pypdf pillow
+
+      - name: Run regression suite (25 tests)
+        run: python3 tests/run_tests.py .
+
+      - name: Build sample (autofit golden path)
+        run: |
+          python3 build.py examples/plates/ examples/sample.tex \
+            --docopts "paper=a3,landscape,columns=3,plates=1"
+          python3 pdfcheck.py examples/sample.pdf --log examples/sample.log \
+            --paper a3 --landscape --pages 2
