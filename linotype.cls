@@ -92,6 +92,7 @@
 \define@key{linotype}{fontpath}{\def\@fontpath{#1}}
 \define@key{linotype}{theme}{\def\@theme{#1}}
 \define@key{linotype}{bodyfontsize}{\setlength{\linotype@bs}{#1}}
+\define@key{linotype}{bottommargin}{\def\@bottommargin{#1}}
 
 % 主题应用: 在 setkeys 后调用（此时所有显式 key 已解析）。
 % 只填充"未显式设置"的项——显式 bodyfont/accent 优先于主题。
@@ -173,9 +174,12 @@
 }
 
 % ---------- 版面几何 ----------
-% 版内容区: 内边距 上20/下16/左15/右15mm；硬边界 = 高−16mm
+% 版内容区: 内边距 上20/下16(可调 bottommargin)/左15/右15mm；硬边界 = 高−下边距
+% bottommargin: 版心底边距（autofit 的第三旋钮，边界 12-16mm）——溢出 < 一行时
+% 微调版心而非动字号（\enlargethispage 对固定 \contentH 的 plate 盒子无效）
+\def\@bottommargin{16mm}
 \newlength{\padTop}\setlength{\padTop}{20mm}
-\newlength{\padBottom}\setlength{\padBottom}{16mm}
+\newlength{\padBottom}
 \newlength{\padSide}\setlength{\padSide}{15mm}
 \newlength{\contentW}\newlength{\contentH}
 \newbox\linotype@platebox  % plate 内容收集盒（vsplit 截断用）
@@ -200,6 +204,8 @@
   \else
     \setlength{\contentW}{\paperW - 2\padSide}%
   \fi
+  % bottommargin key 在 AtBeginDocument 才落地（\padBottom 此时最终确定）
+  \setlength{\padBottom}{\@bottommargin}%
   \setlength{\contentH}{\paperH - \padTop - \padBottom}%
   \setlength{\colW}{0.3333\contentW}%
   \setlength{\mainW}{0.6666\contentW + \colGap}%

@@ -77,6 +77,7 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 | `theme` | newspaper / magazine / brief | newspaper | 预置主题（字体+颜色） |
 | `bodyfont` / `displayfont` / `sansfont` | 已装字体族名 | Newsreader / Playfair Display / Inter | 字体（fontconfig 自动匹配变体） |
 | `bodyfontsize` | 长度 | 9.5pt | 正文基准字号（autofit 的调整参数；所有原子按固定比例缩放，协调性不变） |
+| `bottommargin` | 长度 | 16mm | 版心底边距（autofit 第三旋钮，边界 12–16mm；溢出差一行时微调） |
 | `ink` / `accent` / `papercolor` | hex | 1A1A1A / 8C1D18 / FFFFFF | 颜色 |
 
 **主题**（显式 `bodyfont`/`accent` 优先于主题）：
@@ -113,8 +114,9 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 ## QA 管线（强制，不通过不交付）
 
 1. **Autofit 自动调整**（默认开启，`--no-autofit` 关闭）：内容溢出/太空时自动搜索收敛配置——
-   - **边界**：字号 8.5–11pt（0.5pt 步进）+ 栏数 2–4；**纸张是硬约束，绝不动**
-   - **方向**（multicol 平衡盒高 = 内容自然高/栏数，与 CSS 直觉相反）：溢出 → 缩字号 → 增栏数；太空 → 增字号 → 减栏数
+   - **边界**：字号 8.5–11pt + 栏数 2–4 + 版心底边距 12–16mm；**纸张是硬约束，绝不动**
+   - **算法**（二分搜索，借鉴 tcolorbox fitting 库）：固定栏数下在字号区间**二分找最大不溢出字号**（0.1pt 精度，~5 次/档，单调无振荡）；栏数改变/版心微调后 warm start 复用上一档字号（省迭代）
+   - **方向**（multicol 平衡盒高 = 内容自然高/栏数，与 CSS 直觉相反）：溢出 → 缩字号 → 增栏数 → 版心微调（<一行时）；太空 → 增字号 → 减栏数
    - **收敛**：0 Overfull 且最小利用率 ≥ 45%（太空容忍下界）。每轮输出迭代报告
    - **失败**：边界内无法放下 → 明确报告（历史最佳尝试 + 最满版利用率），退出码 1，PDF 仍保留供参考
    - 双版 + main-aside 的溢出（boxed multicol 硬限制）autofit 缩字号可缓解但未必收敛——诚实报告"无法放下"

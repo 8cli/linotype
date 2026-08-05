@@ -115,6 +115,7 @@ Special characters (`& % $ # _ { } ~ ^`) and Markdown bold/italic are escaped/tr
 | `theme` | `newspaper` / `magazine` / `brief` | `newspaper` | Preset fonts + colors |
 | `bodyfont` / `displayfont` / `sansfont` | any installed family | Newsreader / Playfair Display / Inter | Fonts (fontconfig lookup) |
 | `bodyfontsize` | length | `9.5pt` | Body base size — the autofit knob; all atoms scale proportionally (harmony preserved) |
+| `bottommargin` | length | `16mm` | Content-area bottom margin (autofit's 3rd knob, bounds 12–16mm; micro-adjusts when overflow < 1 line) |
 | `ink` / `accent` / `papercolor` | hex | `1A1A1A` / `8C1D18` / `FFFFFF` | Colors |
 | `fontpath` | directory | `~/.fonts` | Font search path (fallback) |
 
@@ -128,15 +129,15 @@ Themes fill in *unset* values only — an explicit `bodyfont` or `accent` always
 
 ## Autofit — automatic layout adjustment
 
-By default `build.py` treats layout as a **convergent search**, not a one-shot render. Each iteration compiles, reads the feedback (`Plate content: Xpt/ contentH Ypt` + `Overfull plate` warnings), and adjusts one knob:
+By default `build.py` treats layout as a **convergent search**, not a one-shot render. The core is a **binary search over body font size** (inspired by tcolorbox's `tcbfitdim` lower/upper bounds): for a fixed column count, it finds the **largest font that doesn't overflow** (0.1pt precision, ~5 compiles per pass, monotone → no oscillation). Column count and bottom margin act as bounded fallbacks; a warm start reuses the previous pass's font when a knob changes.
 
-| State | First try | Fallback | Boundary |
+| State | Search | Fallback | Boundary |
 |---|---|---|---|
-| Overflow (content too tall) | shrink body font 0.5pt | add a column | font 8.5pt / 4 columns |
-| Sparse (fill < 45%) | grow body font 0.5pt | drop a column | font 11pt / 2 columns |
+| Overflow (content too tall) | shrink font via binary search | add a column → shrink bottom margin | font 8.5pt / 4 columns / 12mm |
+| Sparse (fill < 45%) | grow font via binary search | drop a column | font 11pt / 2 columns |
 | Converged | — | — | 0 Overfull and min fill ≥ 45% |
 
-- **Bounded**: body font 8.5–11pt, columns 2–4. Paper / orientation / plates-per-page are **hard constraints** — autofit never touches them.
+- **Bounded**: body font 8.5–11pt, columns 2–4, bottom margin 12–16mm. Paper / orientation / plates-per-page are **hard constraints** — autofit never touches them.
 - **Harmonious**: font sizes are proportional to the body base (`headline = 3.58×base`, `deck = 1.58×`, `kicker = 0.79×` …), so scaling the base never distorts the visual hierarchy.
 - **Honest**: if content cannot fit within the bounds, it reports the *best attempt* (columns × fontsize with the lowest overflow) and exits 1 — the PDF is still produced, flagged by `Overfull plate` for a human decision.
 - **Disable**: `--no-autofit` restores the classic generate-only pipeline (compile manually with `xelatex`).

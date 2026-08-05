@@ -35,11 +35,16 @@ import re
 import subprocess
 import sys
 
-# ---------- autofit 边界（用户确认: 纸张是硬约束，只调字号+栏数） ----------
-BS_MIN, BS_MAX, BS_STEP = 8.5, 11.0, 0.5      # 正文字号边界（pt）
+# ---------- autofit 边界（用户确认: 纸张是硬约束，只调字号+栏数+版心底边距） ----------
+BS_MIN, BS_MAX = 8.5, 11.0                    # 正文字号边界（pt），二分搜索
+BS_BINARY_EPS = 0.1                           # 二分字号精度（pt）
 COLS_MIN, COLS_MAX = 2, 4                     # 栏数边界
+BM_MIN, BM_MAX = 12.0, 16.0                   # 版心底边距边界（mm，第三旋钮: 溢出<一行时微调）
 FILL_MIN = 0.45                               # 太空容忍下界（利用率 = 内容高/版心高）
-MAX_AUTOFIT_ITERS = 10                        # 迭代硬上限（防意外死循环）
+MAX_AUTOFIT_ITERS = 16                        # 迭代硬上限（防意外死循环）
+# 纸张竖版尺寸 (mm)，用于精确计算版心高（bottommargin 微调的量）
+PAPER_H_MM = {'a3': 297, 'a4': 297, 'letter': 279}
+PAPER_W_MM = {'a3': 420, 'a4': 210, 'letter': 216}
 
 def strip_field(s: str) -> str:
     return s.strip()
@@ -292,18 +297,18 @@ def parse_feedback(log: str) -> tuple:
     return overfull, fills
 
 def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
-    """自动版面调整: 生成 → 编译 → 解析反馈 → 贪心调整（字号→栏数）→ 收敛/失败。
+    r"""自动版面调整（二分搜索版）: 生成 → 编译 → 二分找最大不溢出字号 → 收敛/兜底。
 
-    方向（2026-08-05 源码+实测确认）:
-      multicol 平衡盒高 = 内容自然高(N)/N（balance@columns 起始值，boxed 模式
-      跳过 @colroom 封顶），而自然高(N) 随 N 次线性增长（窄栏断字多）→
-      实测盒高: 60 段 8.5pt: 2栏=1038 / 3栏=927 / 4栏=872pt → **栏多盒高略降**。
-      （与 CSS 网格直觉相反——CSS 是单栏流，LaTeX 是 N 栏平衡，机制不同。）
-      字号每 0.5pt 改变 ~5%（主要旋钮），栏数每档改变 ~6-11%（次要旋钮）。
-      溢出 → 缩字号（微调优先）→ 增栏数（兜底）
-      太空 → 增字号（微调优先）→ 减栏数（兜底，短内容时调节力弱但方向对）
-    注意: 栏数对盒高是 U 形曲线（超长内容 3→4 栏可能变差，实测 120 段
-    244%→271%）——失败时报告历史最佳尝试而非最后的边界配置。
+    算法（升级 2026-08-05，借鉴 tcolorbox fitting 库的 lowerfitdim/upperfitdim
+    二分搜索，而非逐档步进）:
+      1. bodyfontsize（主旋钮）: 在 [8.5, 11]pt 区间二分找**最大不溢出**字号
+         （0.1pt 精度，~5 次编译/档；字号单调 → 无振荡）
+      2. columns（次旋钮）: 溢出到字号下限 → 增栏；太空到字号上限 → 减栏
+         （multicol 平衡盒高 = 内容自然高/N，栏多→矮，实测 60 段 8.5pt:
+         2栏=1038 / 3栏=927 / 4栏=872pt；注意超长内容是 U 形曲线，失败报历史最佳）
+      3. bottommargin（第三旋钮）: 溢出 < 一行（~15pt）时微调版心底边距
+         [12, 16]mm —— 差一点场景的最优解（替代 \enlargethispage，后者对
+         固定 \contentH 的 plate 盒子无效）
     收敛: 0 Overfull 且 min_fill ≥ FILL_MIN。返回 0=收敛; 1=边界内无法放下。
     """
     opts = parse_docopts(docopts)
@@ -311,74 +316,140 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
         cols = int(opts.get('columns', '3'))
     except ValueError:
         cols = 3
-    bs_raw = opts.get('bodyfontsize', '9.5')
-    try:
-        bs = float(str(bs_raw).rstrip('pt'))
-    except ValueError:
-        bs = 9.5
-    base = {k: v for k, v in opts.items() if k not in ('columns', 'bodyfontsize')}
+    cols = max(COLS_MIN, min(COLS_MAX, cols))
+    base = {k: v for k, v in opts.items() if k not in ('columns', 'bodyfontsize', 'bottommargin')}
+    # 版心高（mm）: 精确计算 bottommargin 微调量（纸张尺寸 × 横竖版）
+    paper = str(base.get('paper', 'a3'))
+    landscape = bool(base.get('landscape'))
+    paper_h_mm = PAPER_W_MM.get(paper, 420) if landscape else PAPER_H_MM.get(paper, 297)
 
-    print('=== autofit: 自动版面调整（--no-autofit 关闭）===')
-    cur_docopts = docopts
-    last_over, last_fill = False, None
-    attempts = []  # (cols, bs, overfull, min_fill) — 失败时报告历史最佳
-    for it in range(1, MAX_AUTOFIT_ITERS + 1):
+    print('=== autofit: 自动版面调整（二分搜索，--no-autofit 关闭）===')
+    attempts = []  # (cols, bs, bm, overfull, min_fill, max_fill)
+    it = 0
+    bm = BM_MAX  # bottommargin 第三旋钮（mm），初始 16（默认版心）
+
+    def compile_once(c: int, bs: float, bm_mm: float) -> tuple:
+        """编译一次，返回 (overfull, fills, cur_docopts)。"""
+        nonlocal it
+        it += 1
         d = dict(base)
-        d['columns'] = str(cols)
+        d['columns'] = str(c)
         d['bodyfontsize'] = f'{bs:g}pt'
-        cur_docopts = docopts_to_str(d)
-        tex_text, layouts = generate_tex(plates_dir, cur_docopts, clsname)
+        d['bottommargin'] = f'{bm_mm:g}mm'
+        cur = docopts_to_str(d)
+        tex_text, layouts = generate_tex(plates_dir, cur, clsname)
         write_tex(output, tex_text, layouts)
         try:
             log = compile_tex(output)
         except FileNotFoundError:
             print('错误: xelatex 不可用（autofit 需编译迭代）；请安装 TeX Live，或用 --no-autofit 纯生成')
-            return 1
+            raise SystemExit(1)
         overfull, fills = parse_feedback(log)
         min_fill = min(fills) if fills else None
         max_fill = max(fills) if fills else None
-        last_over, last_fill = overfull, min_fill
-        attempts.append((cols, bs, overfull, min_fill, max_fill))
+        attempts.append((c, bs, bm_mm, overfull, min_fill, max_fill))
         if overfull:
-            fill_str = f'最大 {max_fill * 100:.0f}%' if max_fill is not None else 'N/A'
-            state = f'溢出({fill_str})'
+            state = f'溢出(最大 {max_fill * 100:.0f}%)'
         elif min_fill is not None and min_fill < FILL_MIN:
             state = f'太空(最小 {min_fill * 100:.0f}%)'
         else:
             state = f'达标(最小 {min_fill * 100:.0f}%)' if min_fill is not None else '达标'
-        print(f'  迭代 {it}: columns={cols}, bodyfontsize={bs:g}pt — {state}')
+        print(f'  迭代 {it}: columns={c}, bodyfontsize={bs:g}pt, bottommargin={bm_mm:g}mm — {state}')
+        return overfull, fills, cur
 
-        if not overfull and (min_fill is None or min_fill >= FILL_MIN):
-            print(f'  ✅ 收敛 — 最终配置: {cur_docopts}')
+    def is_converged(overfull: bool, fills: list) -> bool:
+        return not overfull and (not fills or min(fills) >= FILL_MIN)
+
+    def report_failure() -> int:
+        """边界内无法放下: 报告历史最低溢出尝试（U 形曲线 → 非边界配置）。"""
+        all_ov = [a for a in attempts if a[3]]
+        if all_ov:
+            best = min(all_ov, key=lambda a: (a[5] if a[5] is not None else 0))
+            print(f'  ❌ 边界内无法放下（字号 {BS_MIN:g}pt 最小、栏数 {COLS_MAX} 最大、版心 {BM_MIN:g}mm 最小均已试）')
+            print(f'     最低溢出尝试: columns={best[0]}, bodyfontsize={best[1]:g}pt, bottommargin={best[2]:g}mm, 最满版 {best[5]*100:.0f}%')
+        else:
+            ok = [a for a in attempts if not a[3] and a[4] is not None]
+            best = max(ok, key=lambda a: a[4])
+            print(f'  ❌ 边界内无法放下: columns={best[0]}, bodyfontsize={best[1]:g}pt, bottommargin={best[2]:g}mm')
+            print(f'     历史最佳: 最小利用率 {best[4]*100:.0f}% — 内容仍未达标')
+        print('     请修剪内容，或手动换更大纸张（autofit 不动纸张）。已保留对应配置的 PDF（含 Overfull 警告）。')
+        return 1
+
+    # —— 黄金路径: 初始配置（用户指定的栏数 + 默认字号/版心）直接试 ——
+    overfull, fills, cur = compile_once(cols, 9.5, bm)
+    if is_converged(overfull, fills):
+        print(f'  ✅ 收敛 — 最终配置: {cur}')
+        return 0
+
+    prev_bs, warm_done = 9.5, True  # 9.5 已在黄金路径试过
+    while it < MAX_AUTOFIT_ITERS:
+        # —— 字号二分: 找 [BS_MIN, BS_MAX] 内最大不溢出字号（0.1pt 精度）——
+        lo, hi = BS_MIN, BS_MAX
+        best_bs, best_fills, best_cur, best_over = None, None, None, None
+        # warm start: 栏数改变后先试上一档最终字号（省迭代；方向可能翻转须重测）
+        if not warm_done:
+            overfull, fills, cur = compile_once(cols, prev_bs, bm)
+            if is_converged(overfull, fills) and min(fills) >= 0.9:
+                print(f'  ✅ 收敛 — 最终配置: {cur}')
+                return 0
+            if overfull:
+                hi = prev_bs
+                # prev_bs == BS_MIN 时 warm 即下限确认（避免随后重复编译确认）
+                if prev_bs <= BS_MIN + 0.01:
+                    best_bs, best_fills, best_cur, best_over = prev_bs, fills, cur, True
+            else:
+                lo = prev_bs
+                best_bs, best_fills, best_cur, best_over = prev_bs, fills, cur, False
+            warm_done = True
+        while hi - lo >= BS_BINARY_EPS and it < MAX_AUTOFIT_ITERS:
+            mid = round((lo + hi) / 2, 2)
+            if best_bs is not None and abs(mid - best_bs) < 0.01:
+                mid = round(mid + 0.05, 2)  # 避开已试点的边界抖动
+            overfull, fills, cur = compile_once(cols, mid, bm)
+            if overfull:
+                hi = mid
+            else:
+                lo = mid
+                best_bs, best_fills, best_cur, best_over = mid, fills, cur, False
+        if best_bs is None:
+            # 全溢出（8.5 都放不下）: 确认下限
+            overfull, fills, cur = compile_once(cols, BS_MIN, bm)
+        elif best_bs == lo and best_fills is not None:
+            overfull, fills, cur = best_over, best_fills, best_cur
+        else:
+            # 最后确认 lo（最大不溢出近似）
+            overfull, fills, cur = compile_once(cols, lo, bm)
+        prev_bs = lo
+
+        if is_converged(overfull, fills):
+            print(f'  ✅ 收敛 — 最终配置: {cur}')
             return 0
         if overfull:
-            if bs > BS_MIN:
-                bs = round(bs - BS_STEP, 1)          # 先微调字号
-            elif cols < COLS_MAX:
-                cols += 1                            # 再增栏数（平衡盒高 = 自然高/栏数 → 略降）
-            else:
-                ok = [a for a in attempts if not a[2] and a[3] is not None]
-                if ok:
-                    best = max(ok, key=lambda a: a[3])
-                    print(f'  ❌ 边界内无法放下: columns={cols}(最大), bodyfontsize={bs:g}pt(最小)')
-                    print(f'     历史最佳: columns={best[0]}, bodyfontsize={best[1]:g}pt, 最小利用率 {best[3]*100:.0f}% — 内容仍未达标')
-                else:
-                    # 全部溢出: 按最满版（max_fill）评估哪个尝试溢出最少
-                    best = min(attempts, key=lambda a: (a[4] if a[4] is not None else 0))
-                    print(f'  ❌ 边界内无法放下: columns={cols}(最大), bodyfontsize={bs:g}pt(最小)')
-                    print(f'     最低溢出尝试: columns={best[0]}, bodyfontsize={best[1]:g}pt, 最满版 {best[4]*100:.0f}%')
-                print('     请修剪内容，或手动换更大纸张（autofit 不动纸张）。已保留对应配置的 PDF（含 Overfull 警告）。')
-                return 1
-        else:  # 太空
-            if bs < BS_MAX:
-                bs = round(bs + BS_STEP, 1)          # 先微调字号
-            elif cols > COLS_MIN:
-                cols -= 1                            # 再减栏数（盒高略升）
-            else:
-                print(f'  ⚠️ 内容天然短: 已达边界 columns={cols}(最小), bodyfontsize={bs:g}pt(最大) — 接受当前配置（不强行填满）')
-                return 0
+            # 溢出方向: 字号已到下限 → 增栏 → 版心微调 → 失败
+            if cols < COLS_MAX:
+                cols += 1
+                warm_done = False
+                continue
+            max_fill = max(fills) if fills else 1.0
+            content_h_mm = paper_h_mm - 20 - bm
+            overflow_mm = (max_fill - 1.0) * content_h_mm
+            need_mm = overflow_mm + 0.5  # 0.5mm 余量
+            if bm > BM_MIN and need_mm < (bm - BM_MIN):
+                bm = max(BM_MIN, round(bm - need_mm, 1))
+                warm_done = False  # 版心变化 → 重新 warm start（省重新二分）
+                continue
+            return report_failure()
+        else:
+            # 太空: 最大字号仍 fill < 下限 → 减栏 → 接受（内容天然短）
+            if cols > COLS_MIN:
+                cols -= 1
+                warm_done = False
+                continue
+            print(f'  ⚠️ 内容天然短: 已达边界 columns={cols}(最小), bodyfontsize={BS_MAX:g}pt(最大) — 接受当前配置（不强行填满）')
+            return 0
     print(f'  ⚠️ 达到迭代上限 {MAX_AUTOFIT_ITERS}，接受当前配置')
-    return 1 if last_over else 0
+    return 1 if attempts and attempts[-1][3] else 0
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description='plates/*.md → LaTeX 生成器（默认自动版面调整）')

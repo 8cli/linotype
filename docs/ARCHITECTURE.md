@@ -75,8 +75,9 @@ Overfull plate: content 782.05089pt> contentH 742.61694pt   % only on overflow
 
 | Knob | Range | Step | Notes |
 |---|---|---|---|
-| `bodyfontsize` | 8.5–11pt | 0.5pt | primary knob (~5% per step) |
+| `bodyfontsize` | 8.5–11pt | binary (0.1pt precision) | primary knob (~5% per 0.5pt) |
 | `columns` | 2–4 | 1 | secondary knob (~6–11%) |
+| `bottommargin` | 12–16mm | ~0.1mm | tertiary knob — micro-adjusts the viewport when overflow < 1 line |
 | paper / landscape / plates | — | — | **hard constraints**, never auto-changed |
 
 ### The column-count relationship (opposite to CSS intuition)
@@ -91,17 +92,20 @@ Measured (60 paragraphs, 8.5pt): 2-col 1038pt → 3-col 927pt → 4-col 872pt.
 
 **Caveat — the U-shaped curve**: for very long content, natural height grows super-linearly past the balance point (measured 120 paragraphs: 3-col 244% → 4-col 271%), so adding columns can *worsen* overflow. Autofit records every attempt and reports the historical best on failure, never the boundary configuration.
 
-### Greedy search (monotone, no oscillation)
+### Binary search (inspired by tcolorbox `tcbfitdim`)
 
 ```
+golden path: compile user config → converged? → done (no search)
 loop:
-  compile → parse (overfull, fills)
-  converged?  → 0 Overfull and min(fills) ≥ 0.45  → ✅
-  overflow:   shrink font (8.5 floor) → add column (4 cap) → ❌ report best
-  sparse:     grow font (11 cap) → drop column (2 floor) → ✅ accept (content is naturally short)
+  binary-search font in [8.5, 11] for the LARGEST non-overflowing size
+    (0.1pt precision, ~5 compiles; font height is monotone → no oscillation)
+  converged? (0 Overfull and min fill ≥ 0.45) → ✅
+  overflow at font floor:  add column → shrink bottom margin (< 1 line) → ❌ report best
+  sparse at font ceiling:  drop column → ✅ accept (content is naturally short)
+  warm start: when a knob changes, retry the previous pass's font first
 ```
 
-Monotone in each direction (font only shrinks while overflowing, only grows while sparse), so no oscillation; worst case 7 compiles (~35s), hard-capped at 10.
+Monotone in each direction, so no oscillation; worst case ~9 compiles (~30s), hard-capped at 16. The bottom-margin knob is the architectural equivalent of `\enlargethispage` (which cannot work here — plate boxes have fixed `\contentH`).
 
 ### Known interplay with dual-plate + main-aside
 
