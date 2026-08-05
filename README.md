@@ -25,6 +25,7 @@ Its core differentiator is **fixed-viewport layout**: content is typeset into a 
 ## Features
 
 - **Config-driven** — paper (A3/A4/Letter) × orientation × columns (2–4) × plates per page (1/2) × fonts × colors × theme, all in one `\linotypesetup` key-value call
+- **Autofit (default on)** — content too long? The engine automatically shrinks the body font (8.5–11pt) and adjusts column count (2–4) until the layout converges — zero manual tuning. Bounded: paper is a hard constraint, never auto-changed; underfilled pages are not force-filled
 - **Theme system** — `newspaper` (serif + deep red), `magazine` (Charter + deep blue), `brief` (monochrome); explicit font/color settings always win
 - **Markdown field format** — plates are plain text with `KICKER:`, `HEADLINE:`, `BODY:` etc. field labels; no HTML, no CSS, no DOM
 - **Compile-time overflow detection** — `Overfull plate` warnings are emitted by the engine itself; underfull (sparse) pages are filtered as non-defects
@@ -113,6 +114,7 @@ Special characters (`& % $ # _ { } ~ ^`) and Markdown bold/italic are escaped/tr
 | `plates` | 1 / 2 | 2 | Plates per page (2 = side-by-side) |
 | `theme` | `newspaper` / `magazine` / `brief` | `newspaper` | Preset fonts + colors |
 | `bodyfont` / `displayfont` / `sansfont` | any installed family | Newsreader / Playfair Display / Inter | Fonts (fontconfig lookup) |
+| `bodyfontsize` | length | `9.5pt` | Body base size — the autofit knob; all atoms scale proportionally (harmony preserved) |
 | `ink` / `accent` / `papercolor` | hex | `1A1A1A` / `8C1D18` / `FFFFFF` | Colors |
 | `fontpath` | directory | `~/.fonts` | Font search path (fallback) |
 
@@ -124,12 +126,30 @@ Themes fill in *unset* values only — an explicit `bodyfont` or `accent` always
 \SetTagline{INDEPENDENT DAILY NEWS}   % masthead strapline (comma-safe)
 ```
 
+## Autofit — automatic layout adjustment
+
+By default `build.py` treats layout as a **convergent search**, not a one-shot render. Each iteration compiles, reads the feedback (`Plate content: Xpt/ contentH Ypt` + `Overfull plate` warnings), and adjusts one knob:
+
+| State | First try | Fallback | Boundary |
+|---|---|---|---|
+| Overflow (content too tall) | shrink body font 0.5pt | add a column | font 8.5pt / 4 columns |
+| Sparse (fill < 45%) | grow body font 0.5pt | drop a column | font 11pt / 2 columns |
+| Converged | — | — | 0 Overfull and min fill ≥ 45% |
+
+- **Bounded**: body font 8.5–11pt, columns 2–4. Paper / orientation / plates-per-page are **hard constraints** — autofit never touches them.
+- **Harmonious**: font sizes are proportional to the body base (`headline = 3.58×base`, `deck = 1.58×`, `kicker = 0.79×` …), so scaling the base never distorts the visual hierarchy.
+- **Honest**: if content cannot fit within the bounds, it reports the *best attempt* (columns × fontsize with the lowest overflow) and exits 1 — the PDF is still produced, flagged by `Overfull plate` for a human decision.
+- **Disable**: `--no-autofit` restores the classic generate-only pipeline (compile manually with `xelatex`).
+
+> Note: the column-count relationship is **opposite to CSS intuition**. CSS flows text into wider columns → fewer lines; LaTeX `multicol` *balances* N columns so the box height ≈ natural height / N — measured: 60 paragraphs at 8.5pt → 2-col 1038pt, 3-col 927pt, 4-col 872pt. More columns = shorter content. (Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).)
+
 ## QA Pipeline
 
 Linotype treats typesetting as a **build with warnings**:
 
 | Stage | Tool | Detects | Fails when |
 |---|---|---|---|
+| Autofit | `build.py` loop | Convergence (0 Overfull, min fill ≥ 45%) | Content can't fit within bounds → best-attempt report |
 | Compile | `xelatex` + class | `Overfull plate: content Xpt > contentH Ypt` | Content exceeds fixed viewport (must trim or resize) |
 | Compile | class | `Underfull \vbox` | **Filtered** (`\vbadness=10000`) — sparse pages are not defects in newspaper layout |
 | Post | `pdfcheck.py` | Log errors, MediaBox, embedded fonts (≥3), page count | Any mismatch |
@@ -138,8 +158,8 @@ Linotype treats typesetting as a **build with warnings**:
 ```bash
 # Regression suite (positive + negative matrix, runs in a temp dir)
 python3 tests/run_tests.py /path/to/engine
-#   ✅ 10 PASS — covers: build, pages, fonts, overflow detection, escaping,
-#   dual-plate no-blank-page, themes
+#   ✅ 20 PASS — covers: build, pages, fonts, overflow detection, escaping,
+#   dual-plate no-blank-page, themes, autofit (overflow/sparse/boundary/disable)
 ```
 
 ## Design Decisions
@@ -165,8 +185,8 @@ The result: real newspaper content typesets at 151–222mm inside a 281mm viewpo
 ## Known Limitations
 
 - **Pure text** — no image/figure support yet (planned)
-- **Dual-plate + `main-aside`** — the aside's multicol runs inside a minipage and is not height-capped by `\@colht` (a known multicol boxed-mode behavior); overflow is caught by the `Overfull plate` warning. Single-plate mode has no such issue.
-- **Font sizes are fixed per atom** — themes change fonts and colors, not size scales (planned: size-scale theming)
+- **Dual-plate + `main-aside`** — the aside's multicol runs inside a minipage and is not height-capped by `\@colht` (a known multicol boxed-mode behavior); overflow is caught by the `Overfull plate` warning. Autofit's font knob helps but its column knob is fixed at 2 columns for this layout — content may not fully converge. Single-plate mode has no such issue.
+- **Autofit scales fonts, not spacing** — the column-count knob is a U-shaped curve (for very long content, 4 columns can be worse than 3); autofit reports the historical best attempt on failure
 
 ## Requirements
 

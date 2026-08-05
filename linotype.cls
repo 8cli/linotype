@@ -69,6 +69,9 @@
 \def\@displayfont{Playfair Display}
 \def\@sansfont{Inter}
 \def\@fontpath{/home/yupeng/.fonts}
+% 正文基准字号（autofit 的调整参数；所有原子按固定比例缩放，默认 9.5pt）
+% 血泪: 原子字号硬编码时无法整体缩放——必须比例化，协调性才有数学保证。
+\newlength{\linotype@bs}\setlength{\linotype@bs}{9.5pt}
 % 主题: newspaper(默认) | magazine | brief
 \def\@theme{newspaper}
 % 显式设置 flag（theme 只填充未显式设置的项）
@@ -88,6 +91,7 @@
 \define@key{linotype}{sansfont}{\def\@sansfont{#1}\@sansfontsettrue}
 \define@key{linotype}{fontpath}{\def\@fontpath{#1}}
 \define@key{linotype}{theme}{\def\@theme{#1}}
+\define@key{linotype}{bodyfontsize}{\setlength{\linotype@bs}{#1}}
 
 % 主题应用: 在 setkeys 后调用（此时所有显式 key 已解析）。
 % 只填充"未显式设置"的项——显式 bodyfont/accent 优先于主题。
@@ -249,11 +253,11 @@
 }
 
 % Kicker 眉题
-\newcommand{\kicker}[1]{\par\noindent{\fontsans\fontsize{7.5pt}{9pt}\selectfont%
+\newcommand{\kicker}[1]{\par\noindent{\fontsans\fontsize{\dimexpr\linotype@bs*79/100\relax}{\dimexpr\linotype@bs*95/100\relax}\selectfont%
   \addfontfeature{LetterSpace=12}\color{accent}\textbf{\MakeUppercase{#1}}\par\vspace{0.8mm}}}
 
 % 主标题
-\newcommand{\headline}[1]{\par\noindent{\fontdisplay\fontsize{34pt}{36pt}\selectfont\bfseries#1\par\vspace{0.5mm}}}
+\newcommand{\headline}[1]{\par\noindent{\fontdisplay\fontsize{\dimexpr\linotype@bs*358/100\relax}{\dimexpr\linotype@bs*379/100\relax}\selectfont\bfseries#1\par\vspace{0.5mm}}}
 
 % 跨栏标题（借鉴 papertex 的 \expandedtitle）: 全版宽，打破所有栏。
 % 在进入 storycolumns 前调用，标题独占整行（宽 = \contentW）。
@@ -264,17 +268,17 @@
 }
 
 % 副标题
-\newcommand{\subheadline}[1]{\par\noindent{\fontdisplay\fontsize{15pt}{17pt}\selectfont#1\par\vspace{0.5mm}}}
+\newcommand{\subheadline}[1]{\par\noindent{\fontdisplay\fontsize{\dimexpr\linotype@bs*158/100\relax}{\dimexpr\linotype@bs*179/100\relax}\selectfont#1\par\vspace{0.5mm}}}
 
 % 导语
-\newcommand{\deck}[1]{\par\noindent{\fontbody\fontsize{15pt}{18.5pt}\selectfont\itshape#1\par\vspace{0.5mm}}}
+\newcommand{\deck}[1]{\par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*158/100\relax}{\dimexpr\linotype@bs*195/100\relax}\selectfont\itshape#1\par\vspace{0.5mm}}}
 
 % 署名
-\newcommand{\byline}[1]{\par\noindent{\fontsans\fontsize{8pt}{9.5pt}\selectfont%
+\newcommand{\byline}[1]{\par\noindent{\fontsans\fontsize{\dimexpr\linotype@bs*84/100\relax}{\dimexpr\linotype@bs*100/100\relax}\selectfont%
   \addfontfeature{LetterSpace=8}\textbf{\MakeUppercase{#1}}\par\vspace{0.5mm}}}
 
 % 正文（进入分栏环境前调用）
-\newcommand{\storybody}{\fontbody\fontsize{9.5pt}{12.35pt}\selectfont}
+\newcommand{\storybody}{\fontbody\fontsize{\linotype@bs}{\dimexpr\linotype@bs*130/100\relax}\selectfont}
 
 % 正文分栏环境：multicol + 版心栏高 + 溢出警告恢复
 % 血泪1: multicol 栏高预算取 \@colht（= \textheight 整页 297mm）而非版心
@@ -350,7 +354,7 @@
 % 侧栏故事: 单栏正文
 \newcommand{\asidestory}[2]{%
   \subheadline{#1}%
-  \par\noindent{\fontbody\fontsize{9pt}{11.7pt}\selectfont #2}%
+  \par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*95/100\relax}{\dimexpr\linotype@bs*123/100\relax}\selectfont #2}%
   \vspace{1.5mm}%
 }
 
@@ -359,7 +363,7 @@
   \par\vspace{0.5mm}%
   \noindent\rule{\contentW}{0.4pt}%
   \vspace{0.8mm}\par
-  {\fontbody\fontsize{19pt}{21pt}\selectfont\itshape#1\par}%
+  {\fontbody\fontsize{\dimexpr\linotype@bs*200/100\relax}{\dimexpr\linotype@bs*221/100\relax}\selectfont\itshape#1\par}%
   \vspace{0.8mm}\par
   \noindent\rule{\contentW}{0.4pt}%
   \par\vspace{0.5mm}%
@@ -367,16 +371,16 @@
 
 % In Brief 摘要条（3 条并排，参数: 标题 + 3 条内容）
 \newcommand{\inbrief}[4]{%
-  {\fontsans\fontsize{7.5pt}{9pt}\selectfont\addfontfeature{LetterSpace=12}\textbf{#1}}\\[0.5mm]
+  {\fontsans\fontsize{\dimexpr\linotype@bs*79/100\relax}{\dimexpr\linotype@bs*95/100\relax}\selectfont\addfontfeature{LetterSpace=12}\textbf{#1}}\\[0.5mm]
   \noindent\rule{\contentW}{0.4pt}\\[1.5mm]
   \begin{minipage}[t]{0.319\contentW}
-  {\fontbody\fontsize{8.5pt}{10.9pt}\selectfont #2}
+  {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #2}
   \end{minipage}\hspace{0.02\contentW}%
   \begin{minipage}[t]{0.319\contentW}
-  {\fontbody\fontsize{8.5pt}{10.9pt}\selectfont #3}
+  {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #3}
   \end{minipage}\hspace{0.02\contentW}%
   \begin{minipage}[t]{0.319\contentW}
-  {\fontbody\fontsize{8.5pt}{10.9pt}\selectfont #4}
+  {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #4}
   \end{minipage}%
 }
 
@@ -431,10 +435,15 @@
         \setlength{\postmulticols}{0pt}%
 }{%
       \egroup
+      % fill typeout（autofit 消费）: 总是输出内容高度，不只溢出时。
+      % 格式: "Plate content: Xpt / contentH Ypt"（build.py 正则解析 → fill = X/Y）
+      % 血泪: \dimexpr 表达式必须用 \relax 终结——空格会被跳过，
+      % 后续的 "/" 会被当作除法运算符（"Missing number, treated as zero"）！
+      \typeout{Plate content: \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax / contentH \the\contentH}%
       % vsplit 兜底: 内容仍超高时截到版心（multicol 已被 @colht 限高，
       % 此分支主要处理非 multicol 内容的超高）
       \ifdim\dimexpr\ht\linotype@platebox+\dp\linotype@platebox>\contentH
-        \typeout{Overfull plate: content \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\space > contentH \the\contentH}%
+        \typeout{Overfull plate: content \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax > contentH \the\contentH}%
         \setbox\linotype@platebox=\vsplit\linotype@platebox to\dimexpr\contentH+2pt
       \fi
       \vbadness=10000

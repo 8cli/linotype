@@ -25,6 +25,7 @@ Linotype 是一个**配置驱动的通用 LaTeX 排版引擎**，不绑定任何
 ## 特性
 
 - **配置驱动** — 纸张（A3/A4/Letter）× 横竖版 × 栏数（2–4）× 每页版数（1/2）× 字体 × 配色 × 主题，全部收敛在一条 `\linotypesetup` 键值里
+- **Autofit 自动版面调整（默认开启）** — 内容超高/太空时自动缩放大字号（8.5–11pt）与栏数（2–4）直至收敛，零手工调参。**有边界**：纸张是硬约束绝不动；欠满不强行填满
 - **主题系统** — `newspaper`（衬线+深红）/ `magazine`（Charter+深蓝）/ `brief`（单色）；显式字体/颜色永远优先于主题
 - **Markdown 字段化** — plates 是带 `KICKER:`/`HEADLINE:`/`BODY:` 字段标签的纯文本；无 HTML、无 CSS、无 DOM
 - **编译期溢出检测** — `Overfull plate` 警告由引擎自身发出；欠满（内容偏少）被过滤为非缺陷
@@ -40,14 +41,13 @@ Linotype 是一个**配置驱动的通用 LaTeX 排版引擎**，不绑定任何
 ls examples/plates/
 #   p1.md  p2.md
 
-# 2. 由 plates 生成 LaTeX
+# 2. 由 plates 生成 LaTeX（默认 autofit：自动编译迭代直至版面收敛）
 python3 build.py examples/plates/ examples/sample.tex \
     --docopts "paper=a3,landscape,columns=3,plates=1"
+#    → 收敛后直接产出 sample.tex + sample.pdf，无需手动编译
+#    → 关闭自动调整（纯生成，需手动 xelatex）: 加 --no-autofit
 
-# 3. 编译（仅 XeLaTeX — pdfLaTeX 会被类拒绝）
-xelatex -interaction=nonstopmode -halt-on-error -output-directory=examples examples/sample.tex
-
-# 4. 后处理 QA
+# 3. 后处理 QA
 python3 pdfcheck.py examples/sample.pdf --log examples/sample.log \
     --paper a3 --landscape --pages 2
 ```
@@ -113,6 +113,7 @@ BRIEFS:                   # 可选，最多 3 条
 | `plates` | 1 / 2 | 2 | 每页版数（2 = 双版并排） |
 | `theme` | `newspaper` / `magazine` / `brief` | `newspaper` | 预置字体+配色 |
 | `bodyfont` / `displayfont` / `sansfont` | 任意已装字体族 | Newsreader / Playfair Display / Inter | 字体（fontconfig 匹配） |
+| `bodyfontsize` | 长度 | `9.5pt` | 正文基准字号（autofit 的调整旋钮；所有原子按固定比例缩放，协调性不变） |
 | `ink` / `accent` / `papercolor` | hex | `1A1A1A` / `8C1D18` / `FFFFFF` | 颜色 |
 | `fontpath` | 目录 | `~/.fonts` | 字体搜索路径（兜底） |
 
@@ -124,12 +125,30 @@ BRIEFS:                   # 可选，最多 3 条
 \SetTagline{INDEPENDENT DAILY NEWS}   % 报头标语（含逗号安全）
 ```
 
+## Autofit — 自动版面调整
+
+默认 `build.py` 把排版当作**收敛搜索**而非一次性渲染。每轮迭代：编译 → 读取反馈（`Plate content: Xpt/ contentH Ypt` + `Overfull plate` 警告）→ 调整一个旋钮：
+
+| 状态 | 先试 | 兜底 | 边界 |
+|---|---|---|---|
+| 溢出（内容超高） | 缩字号 0.5pt | 增一栏 | 字号 8.5pt / 4 栏 |
+| 太空（利用率 < 45%） | 增字号 0.5pt | 减一栏 | 字号 11pt / 2 栏 |
+| 收敛 | — | — | 0 Overfull 且最小利用率 ≥ 45% |
+
+- **有边界**：字号 8.5–11pt、栏数 2–4。纸张/横竖版/每页版数是**硬约束**，autofit 绝不触碰。
+- **协调**：字号体系与正文基准成固定比例（`headline = 3.58×基准`、`deck = 1.58×`、`kicker = 0.79×`……），缩放基准永不破坏视觉层级。
+- **诚实**：边界内放不下时报告**历史最佳尝试**（溢出最低的 栏数×字号）并退出码 1——PDF 仍产出，以 `Overfull plate` 标记交人工决策。
+- **可关**：`--no-autofit` 恢复纯生成管线（手动 xelatex 编译）。
+
+> 注意：栏数与内容高度的关系**与 CSS 直觉相反**。CSS 把文字流进更宽的栏 → 行少；LaTeX `multicol` 是 *N 栏平衡*，盒高 ≈ 内容自然高/N——实测：60 段 8.5pt → 2 栏 1038pt、3 栏 927pt、4 栏 872pt。**栏多 → 内容更矮**。（详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。）
+
 ## QA 管线
 
 Linotype 把排版当作**带警告的构建**：
 
 | 阶段 | 工具 | 检测 | 失败条件 |
 |---|---|---|---|
+| Autofit | `build.py` 循环 | 收敛（0 Overfull、最小利用率 ≥ 45%） | 边界内放不下 → 报告历史最佳 |
 | 编译 | `xelatex` + 类 | `Overfull plate: content Xpt > contentH Ypt` | 内容超固定版心（需修剪或调配置） |
 | 编译 | 类 | `Underfull \vbox` | **已过滤**（`\vbadness=10000`）——报纸版式允许列尾空隙 |
 | 后处理 | `pdfcheck.py` | 日志错误、MediaBox、字体嵌入（≥3）、页数 | 任一不匹配 |
@@ -138,7 +157,8 @@ Linotype 把排版当作**带警告的构建**：
 ```bash
 # 回归测试（正负向矩阵，临时目录运行）
 python3 tests/run_tests.py /path/to/engine
-#   ✅ 10 PASS — 覆盖: 构建、页数、字体、溢出检测、转义、双版无空白页、主题
+#   ✅ 20 PASS — 覆盖: 构建、页数、字体、溢出检测、转义、双版无空白页、
+#   主题、autofit（溢出收敛/太空提升/边界失败/--no-autofit）
 ```
 
 ## 关键设计决策
@@ -164,8 +184,8 @@ python3 tests/run_tests.py /path/to/engine
 ## 已知限制
 
 - **纯文字** — 暂不支持图片/图表（规划中）
-- **双版 + `main-aside`** — 侧栏 multicol 在 minipage 内不受 `\@colht` 限高（multicol boxed 模式已知行为）；溢出由 `Overfull plate` 警告捕获。单版模式无此问题。
-- **字号体系固定** — 主题只换字体与颜色，不改字号（规划中：字号主题化）
+- **双版 + `main-aside`** — 侧栏 multicol 在 minipage 内不受 `\@colht` 限高（multicol boxed 模式已知行为）；溢出由 `Overfull plate` 警告捕获。autofit 字号旋钮可缓解，但该布局主栏固定 2 栏（栏数旋钮无效），可能无法完全收敛。单版模式无此问题。
+- **autofit 只缩放宽高比例，不改间距** — 栏数旋钮是 U 形曲线（超长内容 4 栏可能差于 3 栏）；失败时报告历史最佳尝试
 
 ## 环境要求
 

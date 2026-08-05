@@ -1,6 +1,6 @@
 # Linotype 压力测试场景
 
-> 5 个测试场景，覆盖 linotype 通用排版 skill 的核心管线（LaTeX 引擎）、纪律约束、错误恢复与边界情况。
+> 6 个测试场景，覆盖 linotype 通用排版 skill 的核心管线（LaTeX 引擎）、纪律约束、错误恢复、边界情况与自动版面调整（autofit）。
 > 每个场景独立可执行，包含完整的前置条件、任务描述、预期行为和通过标准。
 > 引擎：xelatex（pdfLaTeX 会被类拒绝）。管线：plates/*.md → build.py → xelatex → pdfcheck。
 
@@ -102,6 +102,29 @@
 **预期**：引擎检查生效、转义生效、错误可检测。
 
 **通过标准**：三类错误都得到明确诊断 = 引擎纪律良好。
+
+---
+
+## Scenario 6: Autofit（自动版面调整）
+
+**类型**：正向 + 边界 · 自动化验证
+
+**描述**：build.py 默认开启 autofit——内容溢出/太空时自动调整字号（8.5–11pt）与栏数（2–4）直到收敛；纸张是硬约束。Agent 应验证自动收敛、双向调整、边界失败与关闭开关。
+
+**前置条件**：`~/news/latex/` 有 build.py / linotype.cls（含 bodyfontsize key）；xelatex 可用。
+
+**任务**：
+1. **溢出收敛**：60 段超长内容 → `python3 build.py plates/ out.tex --docopts "paper=a4,portrait,columns=3,plates=1"` → 期望自动缩字号/增栏数 → 0 Overfull + `✅ 收敛` 报告 + 退出码 0
+2. **太空提升**：2 段极短内容 → autofit 增大字号/减栏数 → 达到边界接受（不崩溃、不强行填满）
+3. **边界失败**：120 段极长内容 → 到达边界 → 明确报告"边界内无法放下" + 历史最佳尝试 + 退出码 1（PDF 仍保留）
+4. **关闭开关**：`--no-autofit` → 纯生成 .tex（不编译、无 .pdf），行为与旧版一致
+
+**预期**：
+- 收敛时最终配置带 `columns` 与 `bodyfontsize`（如 `columns=4,bodyfontsize=8.5pt`），版心利用率 ≥ 45%
+- 失败时报告"最低溢出尝试"（历史最佳，非边界配置——栏数是 U 形曲线，3 栏可能优于 4 栏）
+- 纸张（paper/landscape/plates）绝不被 autofit 改动
+
+**通过标准**：四类场景行为正确 = autofit 有界、双向、诚实、可关闭。
 
 ---
 

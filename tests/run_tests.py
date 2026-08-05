@@ -5,17 +5,19 @@
     python3 run_tests.py [latex目录]      # 默认 = ~/news/latex/
 
 覆盖:
-  正向:  build.py → xelatex → 编译 0 错误 + 页数正确 + 字体嵌入
+  正向:  build.py --no-autofit → xelatex → 编译 0 错误 + 页数正确 + 字体嵌入
   负向:  注入超长内容 → Overfull plate 出现（溢出检测 FAIL）
   负向:  注入裸特殊字符 → 编译错误
   负向:  双版模式 → 无空白首页 + 页数 = 1（P1|P2 并排）
   主题:  theme=magazine → 编译通过
+  autofit: 溢出收敛 / 太空提升 / 边界失败 / --no-autofit 纯生成
 
 在临时目录运行（复制 build.py/linotype.cls/pdfcheck.py），不污染项目。
 
 退出码: 0 = 全部通过; 1 = 有失败。
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -85,7 +87,7 @@ BODY:
 Short body for plate two.
 """)
     r = run(['python3', 'build.py', 'plates/', 'out.tex',
-             '--docopts', 'paper=a4,portrait,columns=2,plates=1'], cwd=tmp)
+             '--docopts', 'paper=a4,portrait,columns=2,plates=1', '--no-autofit'], cwd=tmp)
     if r.returncode != 0:
         report('正向 build.py', False, r.stderr.strip()[:100])
         return
@@ -109,7 +111,7 @@ def test_overflow_detection(tmp: str) -> None:
     )
     write_plate(tmp, 'p1.md', f"KICKER: Overflow\nHEADLINE: Too Long\nBODY:\n{body}\n")
     r = run(['python3', 'build.py', 'plates/', 'overflow.tex',
-             '--docopts', 'paper=a4,portrait,columns=2,plates=1'], cwd=tmp)
+             '--docopts', 'paper=a4,portrait,columns=2,plates=1', '--no-autofit'], cwd=tmp)
     ok, log = xelatex(tmp, 'overflow.tex')
     has_overfull = 'Overfull plate' in log
     report('负向 超长内容编译', ok, '' if ok else log[-150:])
@@ -124,7 +126,7 @@ BODY:
 This has special chars: 100% & $ # _ { } ~ ^ and a quote.
 """)
     r = run(['python3', 'build.py', 'plates/', 'esc.tex',
-             '--docopts', 'paper=a4,portrait,columns=2,plates=1'], cwd=tmp)
+             '--docopts', 'paper=a4,portrait,columns=2,plates=1', '--no-autofit'], cwd=tmp)
     ok, log = xelatex(tmp, 'esc.tex')
     report('正向 特殊字符转义', ok, '编译通过（build.py 转义生效）' if ok else log[-150:])
 
@@ -142,7 +144,7 @@ BODY:
 Body two with text.
 """)
     r = run(['python3', 'build.py', 'plates/', 'dual.tex',
-             '--docopts', 'paper=a3,landscape,columns=3,plates=2'], cwd=tmp)
+             '--docopts', 'paper=a3,landscape,columns=3,plates=2', '--no-autofit'], cwd=tmp)
     ok, log = xelatex(tmp, 'dual.tex')
     report('负向 双版编译', ok, '' if ok else log[-150:])
     if not ok:
@@ -165,9 +167,80 @@ Body text for magazine theme.
 """)
     r = run(['python3', 'build.py', 'plates/', 'theme.tex',
              '--docopts', 'paper=a4,portrait,columns=2,plates=1',
-             '--theme', 'magazine'], cwd=tmp)
+             '--theme', 'magazine', '--no-autofit'], cwd=tmp)
     ok, log = xelatex(tmp, 'theme.tex')
     report('主题 magazine 编译', ok, '' if ok else log[-150:])
+
+
+def _long_body(n: int) -> str:
+    return '\n\n'.join(
+        f'Paragraph {i}: The quick brown fox jumps over the lazy dog while typesetting engines measure hyphenation quality across narrow columns.'
+        for i in range(n))
+
+
+def _run_autofit(tmp: str, body: str, docopts: str, out: str):
+    """运行 build.py（默认 autofit），返回 (exit_code, stdout)。
+
+    用独立 plates 目录（af_plates/）——共享 plates/ 会被其他测试的
+    残留 p*.md 污染（build.py 读目录内所有 .md，污染导致 fill 误判）。
+    """
+    af_dir = os.path.join(tmp, 'af_plates')
+    os.makedirs(af_dir, exist_ok=True)
+    for f in os.listdir(af_dir):
+        os.remove(os.path.join(af_dir, f))
+    with open(os.path.join(af_dir, 'p1.md'), 'w', encoding='utf-8') as f:
+        f.write(f'KICKER: Auto\nHEADLINE: Autofit Test\nBODY:\n{body}\n')
+    r = run(['python3', 'build.py', af_dir, out,
+             '--docopts', docopts], cwd=tmp)
+    return r.returncode, r.stdout + r.stderr
+
+
+def test_autofit_overflow(tmp: str) -> None:
+    """autofit 溢出收敛: 超长内容 → 自动缩字号/增栏数 → 0 Overfull + 收敛。"""
+    code, out = _run_autofit(tmp, _long_body(50),
+                             'paper=a4,portrait,columns=3,plates=1', 'af_over.tex')
+    report('autofit 溢出收敛(退出码0)', code == 0, f'exit={code}')
+    report('autofit 溢出收敛(报告)', '✅ 收敛' in out,
+           '找到收敛' if '✅ 收敛' in out else out[-200:])
+    if os.path.exists(os.path.join(tmp, 'af_over.log')):
+        log = open(os.path.join(tmp, 'af_over.log'), encoding='utf-8').read()
+        report('autofit 溢出收敛(0 Overfull)', 'Overfull plate' not in log,
+               '无溢出' if 'Overfull plate' not in log else '仍有溢出!')
+
+
+def test_autofit_sparse(tmp: str) -> None:
+    """autofit 太空: 极短内容 → 增大字号/减栏数 → fill 提升或边界接受（不崩溃）。"""
+    body = '\n\n'.join('Short paragraph number %d.' % i for i in range(2))
+    code, out = _run_autofit(tmp, body,
+                             'paper=a4,portrait,columns=4,plates=1', 'af_sparse.tex')
+    report('autofit 太空(不崩溃)', code == 0, f'exit={code}')
+    report('autofit 太空(调整发生)', ('bodyfontsize=11pt' in out or 'columns=2' in out),
+           '已调字号/栏数' if ('bodyfontsize=11pt' in out or 'columns=2' in out) else out[-150:])
+    report('autofit 太空(有界接受)', '接受当前配置' in out or '✅ 收敛' in out,
+           '边界接受' if '接受当前配置' in out else ('收敛' if '✅ 收敛' in out else out[-150:]))
+
+
+def test_autofit_boundary(tmp: str) -> None:
+    """autofit 边界失败: 极长内容 → 到达边界 → 明确失败报告（不崩溃）。"""
+    code, out = _run_autofit(tmp, _long_body(120),
+                             'paper=a4,portrait,columns=2,plates=1', 'af_bound.tex')
+    report('autofit 边界(明确失败)', code == 1 and '边界内无法放下' in out,
+           f'exit={code}' if code == 1 else f'exit={code}, {out[-150:]}')
+    report('autofit 边界(报告最优)', '最低溢出尝试' in out or '历史最佳' in out,
+           '有最优报告' if ('最低溢出尝试' in out or '历史最佳' in out) else out[-150:])
+
+
+def test_autofit_disable(tmp: str) -> None:
+    """--no-autofit: 纯生成（不编译），行为与旧版一致。"""
+    write_plate(tmp, 'p1.md', 'KICKER: Plain\nHEADLINE: No Autofit\nBODY:\nPlain body.\n')
+    r = run(['python3', 'build.py', 'plates/', 'plain.tex',
+             '--docopts', 'paper=a4,portrait,columns=2,plates=1',
+             '--no-autofit'], cwd=tmp)
+    report('--no-autofit 纯生成', r.returncode == 0, f'exit={r.returncode}')
+    tex_ok = os.path.exists(os.path.join(tmp, 'plain.tex'))
+    pdf_ok = os.path.exists(os.path.join(tmp, 'plain.pdf'))
+    report('--no-autofit 无编译', tex_ok and not pdf_ok,
+           '有 .tex 无 .pdf' if tex_ok and not pdf_ok else '行为不符!')
 
 
 def main() -> int:
@@ -185,6 +258,10 @@ def main() -> int:
     test_escape(tmp)
     test_dual_plate(tmp)
     test_theme(tmp)
+    test_autofit_overflow(tmp)
+    test_autofit_sparse(tmp)
+    test_autofit_boundary(tmp)
+    test_autofit_disable(tmp)
 
     print(f'\n{len(PASSED)} PASS, {len(FAILED)} FAIL')
     return 1 if FAILED else 0

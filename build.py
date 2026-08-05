@@ -4,6 +4,13 @@
 用法:
     python3 build.py <plates目录> <输出.tex> [--class linotype] [--docopts "..."]
     python3 build.py plates/ newspaper.tex --docopts "paper=a3,landscape,plates=2,columns=3"
+    python3 build.py plates/ newspaper.tex --docopts "paper=a4,portrait,plates=1,columns=3" --no-autofit
+
+自动版面调整（默认开启，--no-autofit 关闭）:
+    内容超高（Overfull plate）→ 自动缩字号（8.5–11pt, 0.5pt 步进）→ 减栏数（2–4）
+    内容太空（版心利用率 < 45%）→ 自动增字号 → 增栏数
+    纸张是硬约束（autofit 绝不动 paper/landscape/plates）。
+    收敛条件: 0 Overfull 且最小利用率 ≥ 45%。到达边界仍溢出 → 失败报告（保留最小溢出配置的 PDF）。
 
 输入: plates/pN.md, 每版固定结构:
     KICKER: ...
@@ -19,12 +26,20 @@
     BRIEFS:                  (可选, 3 条, 以换行分隔)
 
 输出: 一个 .tex, 每版一个 plate, 版间 \newpage; 组件按内容自动启用。
+autofit 模式下同时产出编译好的 .pdf（收敛配置）。
 """
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+
+# ---------- autofit 边界（用户确认: 纸张是硬约束，只调字号+栏数） ----------
+BS_MIN, BS_MAX, BS_STEP = 8.5, 11.0, 0.5      # 正文字号边界（pt）
+COLS_MIN, COLS_MAX = 2, 4                     # 栏数边界
+FILL_MIN = 0.45                               # 太空容忍下界（利用率 = 内容高/版心高）
+MAX_AUTOFIT_ITERS = 10                        # 迭代硬上限（防意外死循环）
 
 def strip_field(s: str) -> str:
     return s.strip()
@@ -168,36 +183,45 @@ def _join_body(paras: list) -> str:
     r"""正文段列表 → 单字符串（段间 \par，用于宏参数内分段）。"""
     return r'\par '.join(paras)
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description='plates/*.md → LaTeX 生成器')
-    ap.add_argument('plates_dir', help='plates/ 目录')
-    ap.add_argument('output', help='输出 .tex 路径')
-    ap.add_argument('--docopts', default='paper=a3,landscape,plates=2,columns=3',
-                    help='linotype.cls 选项（逗号分隔）')
-    ap.add_argument('--class', dest='clsname', default='linotype',
-                    help='文档类名（默认 linotype）')
-    ap.add_argument('--theme', default='',
-                    help='主题: newspaper|magazine|brief（追加到 docopts）')
-    args = ap.parse_args()
-    if args.theme and f'theme={args.theme}' not in args.docopts:
-        args.docopts = args.docopts.rstrip(',') + f',theme={args.theme}'
 
-    # 读 plates（按文件名排序）
-    files = sorted([f for f in os.listdir(args.plates_dir) if f.endswith('.md')])
+# ---------- autofit 辅助 ----------
+
+def parse_docopts(docopts: str) -> dict:
+    """解析 docopts 字符串 → dict。布尔键（如 landscape）值为 True。"""
+    d = {}
+    for part in docopts.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if '=' in part:
+            k, v = part.split('=', 1)
+            d[k.strip()] = v.strip()
+        else:
+            d[part] = True
+    return d
+
+def docopts_to_str(d: dict) -> str:
+    """dict → docopts 字符串（autofit 每轮组装的最终配置）。"""
+    parts = []
+    for k, v in d.items():
+        parts.append(k if v is True else f'{k}={v}')
+    return ','.join(parts)
+
+def generate_tex(plates_dir: str, docopts: str, clsname: str) -> tuple:
+    """读 plates → 组装 tex 文本 + 版布局表。返回 (tex, layouts)。"""
+    files = sorted([f for f in os.listdir(plates_dir) if f.endswith('.md')])
     if not files:
-        print('错误: plates 目录无 .md 文件')
-        return 1
+        raise SystemExit('错误: plates 目录无 .md 文件')
 
-    out = [r'\documentclass{' + args.clsname + '}',
-           r'\linotypesetup{' + args.docopts + '}',
+    out = [r'\documentclass{' + clsname + '}',
+           r'\linotypesetup{' + docopts + '}',
            r'\begin{document}']
-    # 版组织: 默认每页 1 版（单版模式）；双版时每页 2 版并排
     plates = []
     for i, fname in enumerate(files, 1):
-        text = open(os.path.join(args.plates_dir, fname), encoding='utf-8').read()
+        text = open(os.path.join(plates_dir, fname), encoding='utf-8').read()
         p = parse_plate(text)
         plates.append(render_plate(p, i))
-    if 'plates=2' in args.docopts:
+    if 'plates=2' in docopts:
         # 双版: 每页 2 个 plate 并排（按文件顺序两两配对: P1|P2, P3|P4）
         # 注: 报纸折叠语义（P1|P4, P2|P3）需要特定顺序的文件名——使用者按
         # 折叠序命名 plates 文件即可（如 p1=封面, p4=封底, 同 sheet 相邻）。
@@ -215,26 +239,170 @@ def main() -> int:
             out.append('')
     out.append(r'\end{document}')
 
-    tex = '\n'.join(out)
-    with open(args.output, 'w', encoding='utf-8') as f:
-        f.write(tex)
-    print(f'已生成 {args.output} ({len(files)} 版)')
-    # 生成 layout.json（pixelcheck --layout auto 消费）: 每版布局类型
-    # main-aside → multi(多栏网格); 其他 → single(等宽多栏)
+    # layout.json 数据（pixelcheck --layout auto 消费）: main-aside → multi; 其他 → single
     layouts = {}
     for i, fname in enumerate(files, 1):
-        text = open(os.path.join(args.plates_dir, fname), encoding='utf-8').read()
+        text = open(os.path.join(plates_dir, fname), encoding='utf-8').read()
         p = parse_plate(text)
         layouts[f'p{i}'] = 'multi' if p['layout'] == 'main-aside' else 'single'
-    layout_json = {
-        'sheets': {'front': list(layouts.keys())},
-        'layout': layouts,
-    }
-    out_dir = os.path.dirname(os.path.abspath(args.output))
+    return '\n'.join(out), layouts
+
+def write_tex(output: str, tex_text: str, layouts: dict) -> None:
+    """写 .tex + layout.json（pixelcheck 消费）。"""
+    with open(output, 'w', encoding='utf-8') as f:
+        f.write(tex_text)
+    layout_json = {'sheets': {'front': list(layouts.keys())}, 'layout': layouts}
+    out_dir = os.path.dirname(os.path.abspath(output))
     with open(os.path.join(out_dir, 'layout.json'), 'w', encoding='utf-8') as f:
         json.dump(layout_json, f, ensure_ascii=False, indent=1)
-    print(f'已生成 layout.json ({len(layouts)} 版布局)')
-    return 0
+
+def compile_tex(output: str) -> str:
+    """xelatex 编译 .tex，返回日志文本。
+
+    cwd = 用户运行目录（linotype.cls 须在此，文档用法: 引擎目录运行 build.py）；
+    产物（pdf/log/aux）经 -output-directory 导向 output 所在目录。
+    """
+    out_abs = os.path.abspath(output)
+    out_dir = os.path.dirname(out_abs)
+    tex_name = os.path.basename(out_abs)
+    stem = os.path.splitext(tex_name)[0]
+    r = subprocess.run(
+        ['xelatex', '-interaction=nonstopmode', '-halt-on-error',
+         f'-output-directory={out_dir}', tex_name],
+        cwd=os.getcwd(), capture_output=True, text=True, timeout=300)
+    log_path = os.path.join(out_dir, stem + '.log')
+    if os.path.exists(log_path):
+        with open(log_path, encoding='utf-8', errors='replace') as f:
+            return f.read()
+    return r.stdout + r.stderr
+
+def parse_feedback(log: str) -> tuple:
+    """解析编译日志 → (overfull: bool, fills: list[float])。
+    依赖 linotype.cls 的 plate 环境输出:
+      "Plate content: Xpt/ contentH Ypt"（总是输出）→ fill = X/Y
+      "Overfull plate: content Xpt> contentH Ypt"（仅溢出）→ 溢出判定
+    返回所有版的 fill 列表（autofit 分别用 min 判太空、max 判溢出程度）。
+    """
+    overfull = bool(re.search(r'Overfull plate: content', log))
+    fills = []
+    for m in re.finditer(r'Plate content: ([\d.]+)pt/ contentH ([\d.]+)pt', log):
+        content, content_h = float(m.group(1)), float(m.group(2))
+        if content_h > 0:
+            fills.append(content / content_h)
+    return overfull, fills
+
+def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
+    """自动版面调整: 生成 → 编译 → 解析反馈 → 贪心调整（字号→栏数）→ 收敛/失败。
+
+    方向（2026-08-05 源码+实测确认）:
+      multicol 平衡盒高 = 内容自然高(N)/N（balance@columns 起始值，boxed 模式
+      跳过 @colroom 封顶），而自然高(N) 随 N 次线性增长（窄栏断字多）→
+      实测盒高: 60 段 8.5pt: 2栏=1038 / 3栏=927 / 4栏=872pt → **栏多盒高略降**。
+      （与 CSS 网格直觉相反——CSS 是单栏流，LaTeX 是 N 栏平衡，机制不同。）
+      字号每 0.5pt 改变 ~5%（主要旋钮），栏数每档改变 ~6-11%（次要旋钮）。
+      溢出 → 缩字号（微调优先）→ 增栏数（兜底）
+      太空 → 增字号（微调优先）→ 减栏数（兜底，短内容时调节力弱但方向对）
+    注意: 栏数对盒高是 U 形曲线（超长内容 3→4 栏可能变差，实测 120 段
+    244%→271%）——失败时报告历史最佳尝试而非最后的边界配置。
+    收敛: 0 Overfull 且 min_fill ≥ FILL_MIN。返回 0=收敛; 1=边界内无法放下。
+    """
+    opts = parse_docopts(docopts)
+    try:
+        cols = int(opts.get('columns', '3'))
+    except ValueError:
+        cols = 3
+    bs_raw = opts.get('bodyfontsize', '9.5')
+    try:
+        bs = float(str(bs_raw).rstrip('pt'))
+    except ValueError:
+        bs = 9.5
+    base = {k: v for k, v in opts.items() if k not in ('columns', 'bodyfontsize')}
+
+    print('=== autofit: 自动版面调整（--no-autofit 关闭）===')
+    cur_docopts = docopts
+    last_over, last_fill = False, None
+    attempts = []  # (cols, bs, overfull, min_fill) — 失败时报告历史最佳
+    for it in range(1, MAX_AUTOFIT_ITERS + 1):
+        d = dict(base)
+        d['columns'] = str(cols)
+        d['bodyfontsize'] = f'{bs:g}pt'
+        cur_docopts = docopts_to_str(d)
+        tex_text, layouts = generate_tex(plates_dir, cur_docopts, clsname)
+        write_tex(output, tex_text, layouts)
+        try:
+            log = compile_tex(output)
+        except FileNotFoundError:
+            print('错误: xelatex 不可用（autofit 需编译迭代）；请安装 TeX Live，或用 --no-autofit 纯生成')
+            return 1
+        overfull, fills = parse_feedback(log)
+        min_fill = min(fills) if fills else None
+        max_fill = max(fills) if fills else None
+        last_over, last_fill = overfull, min_fill
+        attempts.append((cols, bs, overfull, min_fill, max_fill))
+        if overfull:
+            fill_str = f'最大 {max_fill * 100:.0f}%' if max_fill is not None else 'N/A'
+            state = f'溢出({fill_str})'
+        elif min_fill is not None and min_fill < FILL_MIN:
+            state = f'太空(最小 {min_fill * 100:.0f}%)'
+        else:
+            state = f'达标(最小 {min_fill * 100:.0f}%)' if min_fill is not None else '达标'
+        print(f'  迭代 {it}: columns={cols}, bodyfontsize={bs:g}pt — {state}')
+
+        if not overfull and (min_fill is None or min_fill >= FILL_MIN):
+            print(f'  ✅ 收敛 — 最终配置: {cur_docopts}')
+            return 0
+        if overfull:
+            if bs > BS_MIN:
+                bs = round(bs - BS_STEP, 1)          # 先微调字号
+            elif cols < COLS_MAX:
+                cols += 1                            # 再增栏数（平衡盒高 = 自然高/栏数 → 略降）
+            else:
+                ok = [a for a in attempts if not a[2] and a[3] is not None]
+                if ok:
+                    best = max(ok, key=lambda a: a[3])
+                    print(f'  ❌ 边界内无法放下: columns={cols}(最大), bodyfontsize={bs:g}pt(最小)')
+                    print(f'     历史最佳: columns={best[0]}, bodyfontsize={best[1]:g}pt, 最小利用率 {best[3]*100:.0f}% — 内容仍未达标')
+                else:
+                    # 全部溢出: 按最满版（max_fill）评估哪个尝试溢出最少
+                    best = min(attempts, key=lambda a: (a[4] if a[4] is not None else 0))
+                    print(f'  ❌ 边界内无法放下: columns={cols}(最大), bodyfontsize={bs:g}pt(最小)')
+                    print(f'     最低溢出尝试: columns={best[0]}, bodyfontsize={best[1]:g}pt, 最满版 {best[4]*100:.0f}%')
+                print('     请修剪内容，或手动换更大纸张（autofit 不动纸张）。已保留对应配置的 PDF（含 Overfull 警告）。')
+                return 1
+        else:  # 太空
+            if bs < BS_MAX:
+                bs = round(bs + BS_STEP, 1)          # 先微调字号
+            elif cols > COLS_MIN:
+                cols -= 1                            # 再减栏数（盒高略升）
+            else:
+                print(f'  ⚠️ 内容天然短: 已达边界 columns={cols}(最小), bodyfontsize={bs:g}pt(最大) — 接受当前配置（不强行填满）')
+                return 0
+    print(f'  ⚠️ 达到迭代上限 {MAX_AUTOFIT_ITERS}，接受当前配置')
+    return 1 if last_over else 0
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description='plates/*.md → LaTeX 生成器（默认自动版面调整）')
+    ap.add_argument('plates_dir', help='plates/ 目录')
+    ap.add_argument('output', help='输出 .tex 路径')
+    ap.add_argument('--docopts', default='paper=a3,landscape,plates=2,columns=3',
+                    help='linotype.cls 选项（逗号分隔）')
+    ap.add_argument('--class', dest='clsname', default='linotype',
+                    help='文档类名（默认 linotype）')
+    ap.add_argument('--theme', default='',
+                    help='主题: newspaper|magazine|brief（追加到 docopts）')
+    ap.add_argument('--no-autofit', action='store_true',
+                    help='关闭自动版面调整（默认开启: 溢出/太空自动调字号栏数，纸张不动）')
+    args = ap.parse_args()
+    if args.theme and f'theme={args.theme}' not in args.docopts:
+        args.docopts = args.docopts.rstrip(',') + f',theme={args.theme}'
+
+    if args.no_autofit:
+        tex_text, layouts = generate_tex(args.plates_dir, args.docopts, args.clsname)
+        write_tex(args.output, tex_text, layouts)
+        n = len([f for f in os.listdir(args.plates_dir) if f.endswith('.md')])
+        print(f'已生成 {args.output} ({n} 版, --no-autofit)')
+        return 0
+    return autofit(args.plates_dir, args.output, args.docopts, args.clsname)
 
 if __name__ == '__main__':
     sys.exit(main())
