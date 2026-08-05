@@ -276,7 +276,7 @@ BRIEFS:
 
 
 def test_image_support(tmp: str) -> None:
-    """A 图片支持: IMAGE 字段 → \photo 生成 + 正常图编译 + 超大图溢出检测。"""
+    r"""A 图片支持: IMAGE 字段 → \photo 生成 + 正常图编译 + 超大图溢出检测。"""
     # 创建测试图（用 PIL 或纯色 PPM）
     from PIL import Image
     Image.new('RGB', (200, 150), (180, 40, 30)).save(os.path.join(tmp, 'img.jpg'), quality=85)

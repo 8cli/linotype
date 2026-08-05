@@ -18,20 +18,14 @@ jobs:
             texlive-xetex texlive-latex-extra texlive-fonts-recommended \
             fonts-lmodern lmodern
 
-      - name: Install project fonts (Newsreader / Playfair Display / Inter)
-        run: |
-          mkdir -p "$HOME/.fonts"
-          curl -fsSL -o "$HOME/.fonts/Newsreader.ttf" \
-            "https://github.com/google/fonts/raw/main/ofl/newsreader/Newsreader%5Bopsz%2Cwght%5D.ttf"
-          curl -fsSL -o "$HOME/.fonts/PlayfairDisplay.ttf" \
-            "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/PlayfairDisplay%5Bwght%5D.ttf"
-          curl -fsSL -o "$HOME/.fonts/Inter.ttf" \
-            "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf"
-          fc-cache -f "$HOME/.fonts"
-          fc-list | grep -iE "newsreader|playfair|inter" || true
+      - name: Install project fonts (static instances from variable fonts)
+        run: bash scripts/ci-install-fonts.sh
 
       - name: Install Python dependencies
-        run: pip install --quiet pypdf pillow
+        run: |
+          python3 -m pip install --quiet --break-system-packages pypdf pillow fonttools 2>/dev/null \
+            || python3 -m pip install --quiet --user pypdf pillow fonttools 2>/dev/null \
+            || pip install --quiet pypdf pillow fonttools
 
       - name: Run regression suite (25 tests)
         run: python3 tests/run_tests.py .
