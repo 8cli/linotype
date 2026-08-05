@@ -40,7 +40,7 @@ BS_MIN, BS_MAX = 8.5, 11.0                    # 正文字号边界（pt），二
 BS_BINARY_EPS = 0.1                           # 二分字号精度（pt）
 COLS_MIN, COLS_MAX = 2, 4                     # 栏数边界
 BM_MIN, BM_MAX = 12.0, 16.0                   # 版心底边距边界（mm，第三旋钮: 溢出<一行时微调）
-FILL_MIN = 0.45                               # 太空容忍下界（利用率 = 内容高/版心高）
+FILL_MIN = 0.45                               # 太空容忍下界（利用率 = 内容高/版心高；--docopts fill_min= 可覆盖）
 MAX_AUTOFIT_ITERS = 16                        # 迭代硬上限（防意外死循环）
 # 纸张竖版尺寸 (mm)，用于精确计算版心高（bottommargin 微调的量）
 PAPER_H_MM = {'a3': 297, 'a4': 297, 'letter': 279}
@@ -333,6 +333,10 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
     """
     opts = parse_docopts(docopts)
     try:
+        fill_min = float(opts.get('fill_min', str(FILL_MIN)))
+    except ValueError:
+        fill_min = FILL_MIN
+    try:
         cols = int(opts.get('columns', '3'))
     except ValueError:
         cols = 3
@@ -370,7 +374,7 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
         attempts.append((c, bs, bm_mm, overfull, min_fill, max_fill))
         if overfull:
             state = f'溢出(最大 {max_fill * 100:.0f}%)'
-        elif min_fill is not None and min_fill < FILL_MIN:
+        elif min_fill is not None and min_fill < fill_min:
             state = f'太空(最小 {min_fill * 100:.0f}%)'
         else:
             state = f'达标(最小 {min_fill * 100:.0f}%)' if min_fill is not None else '达标'
@@ -378,7 +382,7 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
         return overfull, fills, cur
 
     def is_converged(overfull: bool, fills: list) -> bool:
-        return not overfull and (not fills or min(fills) >= FILL_MIN)
+        return not overfull and (not fills or min(fills) >= fill_min)
 
     def report_failure() -> int:
         """边界内无法放下: 报告历史最低溢出尝试（U 形曲线 → 非边界配置）。"""
@@ -550,11 +554,14 @@ TOPIC_BY_PLATE = {0: "world/military", 1: "ai/tech", 2: "space", 3: "china-tech"
 MIN_KIND_BY_PLATE = {0: "china-official", 1: "company", 2: "agency", 3: "china-official"}
 
 
-def estimate_requests(fill: float, content_h: float, plate_idx: int) -> list[dict]:
-    """按 fill 缺口估算补稿需求（规格: type/words/min_kind/topic）。"""
-    if fill >= 0.45:
+def estimate_requests(fill: float, content_h: float, plate_idx: int, fill_min: float = FILL_MIN) -> list[dict]:
+    """按 fill 缺口估算补稿需求（规格: type/words/min_kind/topic）。
+
+    fill_min 为太空容忍下界（--docopts fill_min= 覆盖）；fill ≥ fill_min 不发单。
+    """
+    if fill >= fill_min:
         return []
-    deficit = (0.45 - fill) * content_h
+    deficit = (fill_min - fill) * content_h
     topic = TOPIC_BY_PLATE.get(plate_idx, "world")
     min_kind = MIN_KIND_BY_PLATE.get(plate_idx, "china-official")
     # 估算: 简讯 60-90 字 ≈ 26-40pt; 中篇 250-400 字 ≈ 110-175pt; 深度 400-600 字 ≈ 175-260pt
@@ -570,7 +577,7 @@ def estimate_requests(fill: float, content_h: float, plate_idx: int) -> list[dic
              "topic": topic, "min_kind": min_kind}]
 
 
-def write_demand(log_path: str, out_dir: str) -> str:
+def write_demand(log_path: str, out_dir: str, fill_min: float = FILL_MIN) -> str:
     """从编译日志读每版 content/fill → 估算补稿需求 → 写 demand.json。
     返回 demand.json 路径；无需求/日志缺失/溢出返回 None。"""
     if not os.path.exists(log_path):
@@ -585,10 +592,10 @@ def write_demand(log_path: str, out_dir: str) -> str:
     for i, (content, content_h) in enumerate(pairs):
         content, content_h = float(content), float(content_h)
         fill = content / content_h if content_h else 1.0
-        reqs = estimate_requests(fill, content_h, i)
+        reqs = estimate_requests(fill, content_h, i, fill_min)
         if reqs:
             plates[f"P{i+1}"] = {"fill": round(fill, 3),
-                                  "deficit_pt": round((0.45 - fill) * content_h, 1),
+                                  "deficit_pt": round((fill_min - fill) * content_h, 1),
                                   "requests": reqs}
     if not plates:
         return None
@@ -630,7 +637,14 @@ def main() -> int:
         code = autofit(args.plates_dir, args.output, args.docopts, args.clsname)
         if args.demand and code == 0:
             out_dir = os.path.dirname(os.path.abspath(args.output))
-            dpath = write_demand(os.path.splitext(args.output)[0] + '.log', out_dir)
+            fill_min = FILL_MIN
+            for kv in args.docopts.split(','):
+                if kv.strip().startswith('fill_min='):
+                    try:
+                        fill_min = float(kv.split('=', 1)[1])
+                    except ValueError:
+                        pass
+            dpath = write_demand(os.path.splitext(args.output)[0] + '.log', out_dir, fill_min)
             if dpath:
                 print(f'  📋 demand.json 已输出: {dpath} (imposer 按单补稿)')
             else:
