@@ -1,0 +1,12 @@
+{
+ "sheets": {
+  "front": [
+   "p1",
+   "p2"
+  ]
+ },
+ "layout": {
+  "p1": "single",
+  "p2": "multi"
+ }
+}

@@ -1,0 +1,46 @@
+\documentclass{linotype}
+\linotypesetup{paper=a3,landscape,columns=3,plates=1}
+\begin{document}
+% ===== P1 =====
+\begin{plate}
+\kicker{TYPOGRAPHY \& HISTORY}
+\headline{The Linotype Legacy: A Century of Setting Type}
+\subheadline{Ottmar Mergenthaler's line-casting machine industrialized the printed word — and its spirit lives on in config-driven digital typesetting.}
+\deck{The Linotype machine cast complete lines of type from molten metal, cutting the time to set a page from hours to minutes. Its story — from hot metal to LaTeX — is a history of industrializing the printed word.}
+\byline{The Linotype Sample Desk}
+\expandedtitle{Hot Metal to Cold Code}
+\begin{storycolumns}
+\noindent Ottmar Mergenthaler patented the Linotype machine in 1884 and put it into commercial service two years later at the New York Tribune, where contemporaries called it the single greatest advance in printing since movable type four hundred years earlier. A skilled operator could set thousands of characters an hour, and the machine cast a complete line of type as one solid slug, eliminating the tedious redistribution of individual sorts.
+
+By the mid-twentieth century more than fifty thousand Linotype machines were in daily use worldwide. For newspapers such as The New York Times they were the beating heart of the composing room: editors could set an entire front page in the time hand compositors needed for a single column. The machine was so celebrated that Thomas Edison was said to have called it the eighth wonder of the world.
+
+Hot metal endured until the 1960s and 1970s, when phototypesetting — cold type — and soon after digital composition displaced it. Linotype merged with Monotype in 1987, and The New York Times, the last major American newspaper to set hot-metal type, completed its conversion in 1978, according to its own account of the transition.
+
+The same impulse that drove Mergenthaler — making good typography fast, repeatable and economical — animates modern digital typesetting. Donald Knuth's TeX brought computer-science rigor to typesetting in 1978; Leslie Lamport's LaTeX made it a practical system for structured documents in 1984; and XeTeX with fontspec opened the world of Unicode and OpenType to the same engine.
+
+The machine's economics mattered as much as its mechanics. Composing-room costs fell sharply, and the trade press of the day estimated that a single machine could pay for itself within two years of continuous operation. Linotype operators became a skilled aristocracy of the printing trade; their union, the International Typographical Union, founded in 1852, was one of the oldest labor organizations in the United States.
+
+Even after hot metal faded, its vocabulary survived. "Leading," "slug," "em" and "pi" remain everyday words in digital layout, and the term "platemaking" still describes the final step of a press run. The craft that Mergenthaler industrialized did not vanish — it was absorbed into software.
+
+A generation later, configuration-driven pipelines take the idea one step further: content is authored as plain Markdown fields, and a build script turns it into a LaTeX document whose paper, columns, fonts and colors are declared in a single key-value setup. The typesetter's craft — grid, measure, leading, widows and orphans — becomes programmable and inspectable at compile time.
+\end{storycolumns}
+\vspace{0.5mm}
+\pullquote{"The single greatest advance in printing since movable type 400 years earlier."}
+\vspace{1mm}
+\inbrief{IN BRIEF}{\textbf{1886} First commercial Linotype installation at the New York Tribune, cutting typesetting time dramatically, per the National Museum of American History.}{\textbf{50,000} Linotype machines in daily use worldwide by the mid-20th century, as commonly cited in printing-industry histories.}{\textbf{1978} The New York Times ends hot-metal typesetting, closing a century of line casting, per The Times's own centennial history.}
+\end{plate}
+\newpage
+
+% ===== P2 =====
+\begin{plate}
+\begin{mainaside}
+\mainstory{THE CRAFT OF TYPE}{What Good Typography Is For}{Typography exists to serve the reader: predictable measure, honest hierarchy, and text that never fights the page.}{The Linotype Sample Desk}{Good typography is invisible in the best sense: the reader is never aware of the grid, the measure or the leading, only of prose that is easy to enter and hard to put down. A well-set page gives the eye a stable rhythm — a consistent line length, a deliberate hierarchy of headline, deck and body, and a text block that respects the margins of the paper.\par The choice of typeface matters less than the choice of measure; the ornament matters less than the white space. Robert Bringhurst's Elements of Typographic Style puts the comfortable range of line length at 45 to 75 characters, with the average near 66 — and a three-column newspaper page, working near the short end of that range, demands disciplined hyphenation and justification.\par Type is a tool, and like all tools it is judged by how well it disappears into the work. The grid exists to be broken only with intention; the white space is not empty but structural. A page that respects these conventions lets the reader forget the medium entirely and meet the words.\par Hierarchy is the second contract. A headline signals what matters; a deck says what the story is about; the body delivers the argument. When the hierarchy is honest, readers can skim the page and still know what happened — the newspaper reader's oldest skill, and one the digital feed is only now relearning.\par A grid is not a cage but a contract. It fixes the measure, the column count and the margins so that every page in a publication speaks the same visual language, and it lets a reader know at a glance where to look next. Breaking the grid is a privilege earned by understanding it first.\par Newspaper design faces one further constraint that digital pages rarely do: the page is a fixed size. Nothing can be pushed to the next screen. Text that does not fit must be trimmed, re-set or accepted with a visible warning — and the discipline of knowing exactly how much room remains is what separates a composed page from a dumped one.}
+\asidestory{Rules of Measure}{A line length of 45 to 75 characters is the classic range for comfortable reading, with the average near 66. Narrow columns, such as those in a three-column newspaper page, push toward the shorter end and demand disciplined hyphenation and justification.\par In this sample the main column runs two columns at a comfortable measure, while the aside holds single-column notes — the classic newspaper pairing of a lead story and its sidebar.}
+\asidestory{Widows \& Orphans}{A widow is a line of text left alone at the top of a page; an orphan is a line stranded at the bottom. Classic typesetting practice eliminates both, often by adjusting leading or rephrasing — the kind of judgment call a compiler warning can only flag, not fix.\par Linotype surfaces the first half of the problem automatically: an overfull plate produces a compile-time warning, so a human editor decides whether to trim the text or accept the flag.}
+\end{mainaside}
+\vspace{0.5mm}
+\pullquote{Type is a tool, judged by how well it disappears into the work.}
+\end{plate}
+\newpage
+
+\end{document}

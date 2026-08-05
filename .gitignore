@@ -1,0 +1,17 @@
+# TeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+
+# Local fonts
+fonts/
