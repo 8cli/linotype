@@ -341,7 +341,7 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
     except ValueError:
         cols = 3
     cols = max(COLS_MIN, min(COLS_MAX, cols))
-    base = {k: v for k, v in opts.items() if k not in ('columns', 'bodyfontsize', 'bottommargin')}
+    base = {k: v for k, v in opts.items() if k not in ('columns', 'bodyfontsize', 'bottommargin', 'fill_min')}
     # 版心高（mm）: 精确计算 bottommargin 微调量（纸张尺寸 × 横竖版）
     paper = str(base.get('paper', 'a3'))
     landscape = bool(base.get('landscape'))
