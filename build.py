@@ -545,6 +545,59 @@ def visual_check(output: str, docopts: str, pixelcheck: str = '') -> int:
     return 0
 
 
+# ---------- linotype demand 输出（imposer 需求-供给协议；--demand 时启用） ----------
+TOPIC_BY_PLATE = {0: "world/military", 1: "ai/tech", 2: "space", 3: "china-tech"}
+MIN_KIND_BY_PLATE = {0: "china-official", 1: "company", 2: "agency", 3: "china-official"}
+
+
+def estimate_requests(fill: float, content_h: float, plate_idx: int) -> list[dict]:
+    """按 fill 缺口估算补稿需求（规格: type/words/min_kind/topic）。"""
+    if fill >= 0.45:
+        return []
+    deficit = (0.45 - fill) * content_h
+    topic = TOPIC_BY_PLATE.get(plate_idx, "world")
+    min_kind = MIN_KIND_BY_PLATE.get(plate_idx, "china-official")
+    # 估算: 简讯 60-90 字 ≈ 26-40pt; 中篇 250-400 字 ≈ 110-175pt; 深度 400-600 字 ≈ 175-260pt
+    if deficit < 100:
+        return [{"type": "brief", "count": max(1, int(deficit // 33)), "words": [60, 90],
+                 "topic": topic, "min_kind": min_kind}]
+    if deficit < 300:
+        return [{"type": "main", "count": 1, "words": [250, 400], "topic": topic, "min_kind": min_kind},
+                {"type": "brief", "count": max(1, int((deficit - 140) // 33)), "words": [60, 90],
+                 "topic": topic, "min_kind": min_kind}]
+    return [{"type": "deep_dive", "count": 1, "words": [400, 600], "topic": topic, "min_kind": "thinktank"},
+            {"type": "brief", "count": max(1, int((deficit - 200) // 33)), "words": [60, 90],
+             "topic": topic, "min_kind": min_kind}]
+
+
+def write_demand(log_path: str, out_dir: str) -> str:
+    """从编译日志读每版 content/fill → 估算补稿需求 → 写 demand.json。
+    返回 demand.json 路径；无需求/日志缺失/溢出返回 None。"""
+    if not os.path.exists(log_path):
+        return None
+    log_text = open(log_path, encoding="utf-8", errors="replace").read()
+    if re.search(r"Overfull plate: content", log_text):
+        return None  # 溢出时 autofit 未收敛，不发补稿单（应先修内容）
+    pairs = re.findall(r"Plate content: ([\d.]+)pt/ contentH ([\d.]+)pt", log_text)
+    if not pairs:
+        return None
+    plates = {}
+    for i, (content, content_h) in enumerate(pairs):
+        content, content_h = float(content), float(content_h)
+        fill = content / content_h if content_h else 1.0
+        reqs = estimate_requests(fill, content_h, i)
+        if reqs:
+            plates[f"P{i+1}"] = {"fill": round(fill, 3),
+                                  "deficit_pt": round((0.45 - fill) * content_h, 1),
+                                  "requests": reqs}
+    if not plates:
+        return None
+    path = os.path.join(out_dir, "demand.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"plates": plates}, f, ensure_ascii=False, indent=2)
+    return path
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description='plates/*.md → LaTeX 生成器（默认自动版面调整）')
     ap.add_argument('plates_dir', help='plates/ 目录')
@@ -561,6 +614,8 @@ def main() -> int:
                     help='视觉验收闭环: autofit 收敛后渲染 PDF → pixelcheck 诊断列空白（借鉴 PaperFit）')
     ap.add_argument('--pixelcheck', default='',
                     help='pixelcheck.py 路径（--visual 时；默认自动探测 scripts/ 或 skill 目录）')
+    ap.add_argument('--demand', action='store_true',
+                    help='autofit 收敛后输出 demand.json（imposer 按单补稿）')
     args = ap.parse_args()
     if args.theme and f'theme={args.theme}' not in args.docopts:
         args.docopts = args.docopts.rstrip(',') + f',theme={args.theme}'
@@ -573,6 +628,13 @@ def main() -> int:
         print(f'已生成 {args.output} ({n} 版, --no-autofit)')
     else:
         code = autofit(args.plates_dir, args.output, args.docopts, args.clsname)
+        if args.demand and code == 0:
+            out_dir = os.path.dirname(os.path.abspath(args.output))
+            dpath = write_demand(os.path.splitext(args.output)[0] + '.log', out_dir)
+            if dpath:
+                print(f'  📋 demand.json 已输出: {dpath} (imposer 按单补稿)')
+            else:
+                print('  📋 demand.json: 无需求（版面全部达标）')
     if args.visual:
         vc = visual_check(args.output, args.docopts, args.pixelcheck)
         if vc != 0:
