@@ -8,7 +8,7 @@ Turn Markdown content into print-quality multi-column PDFs — with compile-time
 
 `plates/*.md` → `build.py` → `xelatex` → **PDF**
 
-[Quick Start](#quick-start) · [Content Format](#content-format) · [Configuration](#configuration) · [QA Pipeline](#qa-pipeline) · [Architecture](docs/ARCHITECTURE.md) · [中文 README](README.zh-CN.md)
+[Quick Start](#quick-start) · [Content Format](#content-format) · [Configuration](#configuration) · [QA Pipeline](#qa-pipeline) · [Architecture](docs/ARCHITECTURE.md) · [Dev History](docs/DEVELOPMENT-HISTORY.md) · [中文 README](README.zh-CN.md)
 
 </div>
 
@@ -87,6 +87,9 @@ Each plate is a `plates/pN.md` file with **field labels** (not Markdown headings
 LAYOUT: main-aside        # optional: '' (equal columns, default) | main-aside
 COLUMNS: 3                # optional: per-plate column count
 EXPANDEDTITLE: Title      # optional: full-width title breaking all columns
+IMAGE: img.jpg            # optional: image path (relative to plates/ or absolute)
+IMAGEWIDTH: 1.0           # optional: image width as fraction of plate width 0-1 (default 1.0)
+IMAGECAPTION: Caption     # optional: caption under the image
 KICKER: Section label
 HEADLINE: Main headline
 SUBHEADLINE: Subtitle     # optional
@@ -102,6 +105,20 @@ BRIEFS:                   # optional, up to 3 items
 **Item 1:** text...
 ```
 
+**Field reference:**
+
+| Field | Where | Meaning |
+|---|---|---|
+| `LAYOUT` | header | `main-aside` = main 2-col + aside 1-col; default = equal columns |
+| `COLUMNS` | header | per-plate column count (overrides `--docopts` global) |
+| `EXPANDEDTITLE` | header | full-width title breaking all columns |
+| `IMAGE` / `IMAGEWIDTH` / `IMAGECAPTION` | header | plate-top figure via `\photo` (image height feeds overflow detection) |
+| `KICKER` / `HEADLINE` / `SUBHEADLINE` / `DECK` / `BYLINE` | header | story header chain |
+| `BODY` | section | body paragraphs, blank-line separated |
+| `STORY-B` / `STORY-C` | section | aside/sidebar stories (main-aside layout) |
+| `PULLQUOTE` | header | quote box (full-width in equal layout; in-column in main-aside) |
+| `BRIEFS` | section | "In Brief" summary items (up to 3) |
+
 Special characters (`& % $ # _ { } ~ ^`) and Markdown bold/italic are escaped/translated by `build.py` automatically. Full examples in [`examples/plates/`](examples/plates/).
 
 ## Configuration
@@ -114,7 +131,7 @@ Special characters (`& % $ # _ { } ~ ^`) and Markdown bold/italic are escaped/tr
 | `landscape` / `portrait` | — | portrait | Orientation |
 | `columns` | 2–4 | 3 | Global column count |
 | `plates` | 1 / 2 | 2 | Plates per page (2 = side-by-side) |
-| `theme` | `newspaper` / `magazine` / `brief` | `newspaper` | Preset fonts + colors |
+| `theme` | `newspaper` / `magazine` / `brief` / `financial` / `sport` / `literary` | `newspaper` | Preset fonts + colors |
 | `bodyfont` / `displayfont` / `sansfont` | any installed family | Newsreader / Playfair Display / Inter | Fonts (fontconfig lookup) |
 | `bodyfontsize` | length | `9.5pt` | Body base size — the autofit knob; all atoms scale proportionally (harmony preserved) |
 | `bottommargin` | length | `16mm` | Content-area bottom margin (autofit's 3rd knob, bounds 12–16mm; micro-adjusts when overflow < 1 line) |
@@ -123,10 +140,52 @@ Special characters (`& % $ # _ { } ~ ^`) and Markdown bold/italic are escaped/tr
 
 Themes fill in *unset* values only — an explicit `bodyfont` or `accent` always wins.
 
+| Theme | Body font | Display font | Accent | Character |
+|---|---|---|---|---|
+| `newspaper` | Newsreader | Playfair Display | deep red `8C1D18` | classic broadsheet |
+| `magazine` | Bitstream Charter | Playfair Display | deep blue `1B3A5C` | feature/editorial |
+| `brief` | Newsreader | Playfair Display | ink (monochrome) | minimal |
+| `financial` | Newsreader | Playfair Display | deep green `0F5132` | WSJ-style |
+| `sport` | Newsreader | Inter | vivid orange `E64A19` | high-contrast |
+| `literary` | Bitstream Charter | Playfair Display | deep brown `5D4037` | bookish |
+
 ### `\Set*` metadata commands
 
 ```latex
 \SetTagline{INDEPENDENT DAILY NEWS}   % masthead strapline (comma-safe)
+```
+
+### `build.py` CLI reference
+
+```
+python3 build.py <plates_dir> <output.tex> [options]
+
+positional:
+  plates_dir    directory of plates/pN.md files
+  output        output .tex path (autofit also emits .pdf + .log there)
+
+options:
+  --docopts "paper=a3,landscape,columns=3,plates=1"   linotype.cls keys (comma-separated)
+  --theme magazine          preset theme (appends theme= to docopts)
+  --no-autofit              generate .tex only (no compile, no search) — classic pipeline
+  --visual                  after autofit, render PDF → pixelcheck diagnostics → fix suggestions
+  --pixelcheck PATH         pixelcheck.py path for --visual (auto-detected by default)
+  --class linotype          document class name (default linotype)
+```
+
+Examples:
+```bash
+# Classic: generate .tex, compile manually with xelatex
+python3 build.py plates/ out.tex --docopts "paper=a4,portrait,columns=2,plates=1" --no-autofit
+
+# Autofit: automatic layout search, emits converged .pdf
+python3 build.py plates/ out.tex --docopts "paper=a3,landscape,columns=3,plates=1"
+
+# Autofit + visual acceptance loop
+python3 build.py plates/ out.tex --docopts "..." --visual
+
+# Theme override
+python3 build.py plates/ out.tex --docopts "..." --theme financial
 ```
 
 ## Autofit — automatic layout adjustment
@@ -208,7 +267,8 @@ The result: real newspaper content typesets at 151–222mm inside a 281mm viewpo
 ├── pdfcheck.py         # PDF post-processing QA
 ├── SKILL.md            # Claude Code skill manual (agent-facing)
 ├── docs/
-│   └── ARCHITECTURE.md # Key design decisions & LaTeX lessons
+│   ├── ARCHITECTURE.md       # Key design decisions & LaTeX lessons
+│   └── DEVELOPMENT-HISTORY.md # Full dev/debug journey (root causes & fixes)
 ├── examples/
 │   ├── plates/         # Sample content (all field formats)
 │   └── sample.pdf      # Pre-built sample output

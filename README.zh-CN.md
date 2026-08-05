@@ -8,7 +8,7 @@
 
 `plates/*.md` → `build.py` → `xelatex` → **PDF**
 
-[快速开始](#快速开始) · [内容格式](#内容格式) · [配置系统](#配置系统) · [QA 管线](#qa-管线) · [架构文档](docs/ARCHITECTURE.md) · [English README](README.md)
+[快速开始](#快速开始) · [内容格式](#内容格式) · [配置系统](#配置系统) · [QA 管线](#qa-管线) · [架构文档](docs/ARCHITECTURE.md) · [开发历程](docs/DEVELOPMENT-HISTORY.md) · [English README](README.md)
 
 </div>
 
@@ -86,6 +86,9 @@ plates/*.md（字段化内容）              ← 唯一事实源
 LAYOUT: main-aside        # 可选: ''（等宽多栏，默认）| main-aside
 COLUMNS: 3                # 可选: 版独立栏数
 EXPANDEDTITLE: 跨栏标题    # 可选: 全版宽标题，打破所有栏
+IMAGE: img.jpg            # 可选: 图片路径（相对 plates/ 或绝对）
+IMAGEWIDTH: 1.0           # 可选: 图宽占版宽比例 0-1（默认 1.0 全版宽）
+IMAGECAPTION: 图注        # 可选
 KICKER: 眉题
 HEADLINE: 主标题
 SUBHEADLINE: 副标题        # 可选
@@ -101,6 +104,20 @@ BRIEFS:                   # 可选，最多 3 条
 **条目1:** 内容...
 ```
 
+**字段参考**：
+
+| 字段 | 位置 | 含义 |
+|---|---|---|
+| `LAYOUT` | 头部 | `main-aside` = 主栏 2 栏 + 侧栏 1 栏；默认等宽多栏 |
+| `COLUMNS` | 头部 | 版独立栏数（覆盖 `--docopts` 全局） |
+| `EXPANDEDTITLE` | 头部 | 全版宽跨栏标题 |
+| `IMAGE` / `IMAGEWIDTH` / `IMAGECAPTION` | 头部 | 版顶图（`\photo`；图片高度计入溢出检测） |
+| `KICKER` / `HEADLINE` / `SUBHEADLINE` / `DECK` / `BYLINE` | 头部 | 故事报头链 |
+| `BODY` | 区块 | 正文段，段间空行 |
+| `STORY-B` / `STORY-C` | 区块 | 侧栏故事（main-aside 布局） |
+| `PULLQUOTE` | 头部 | 引文框（等宽布局通栏；main-aside 栏内） |
+| `BRIEFS` | 区块 | In Brief 摘要条（最多 3 条） |
+
 特殊字符（`& % $ # _ { } ~ ^`）与 Markdown 加粗/斜体由 `build.py` 自动转义。完整示例见 [`examples/plates/`](examples/plates/)。
 
 ## 配置系统
@@ -113,7 +130,7 @@ BRIEFS:                   # 可选，最多 3 条
 | `landscape` / `portrait` | — | portrait | 横/竖版 |
 | `columns` | 2–4 | 3 | 全局栏数 |
 | `plates` | 1 / 2 | 2 | 每页版数（2 = 双版并排） |
-| `theme` | `newspaper` / `magazine` / `brief` | `newspaper` | 预置字体+配色 |
+| `theme` | `newspaper` / `magazine` / `brief` / `financial` / `sport` / `literary` | `newspaper` | 预置字体+配色 |
 | `bodyfont` / `displayfont` / `sansfont` | 任意已装字体族 | Newsreader / Playfair Display / Inter | 字体（fontconfig 匹配） |
 | `bodyfontsize` | 长度 | `9.5pt` | 正文基准字号（autofit 的调整旋钮；所有原子按固定比例缩放，协调性不变） |
 | `bottommargin` | 长度 | `16mm` | 版心底边距（autofit 第三旋钮，边界 12–16mm；溢出差一行时微调） |
@@ -122,10 +139,52 @@ BRIEFS:                   # 可选，最多 3 条
 
 主题只填充**未显式设置**的项——显式 `bodyfont` 或 `accent` 永远优先。
 
+| 主题 | 正文字体 | 标题字体 | 强调色 | 气质 |
+|---|---|---|---|---|
+| `newspaper` | Newsreader | Playfair Display | 深红 `8C1D18` | 经典大报 |
+| `magazine` | Bitstream Charter | Playfair Display | 深蓝 `1B3A5C` | 特稿/编辑 |
+| `brief` | Newsreader | Playfair Display | 墨色（单色） | 极简 |
+| `financial` | Newsreader | Playfair Display | 深绿 `0F5132` | 华尔街日报风 |
+| `sport` | Newsreader | Inter | 亮橙 `E64A19` | 高对比动感 |
+| `literary` | Bitstream Charter | Playfair Display | 深棕 `5D4037` | 书卷气 |
+
 ### `\Set*` 元数据命令
 
 ```latex
 \SetTagline{INDEPENDENT DAILY NEWS}   % 报头标语（含逗号安全）
+```
+
+### `build.py` CLI 完整参考
+
+```
+python3 build.py <plates目录> <输出.tex> [选项]
+
+位置参数:
+  plates_dir    plates/pN.md 目录
+  output        输出 .tex 路径（autofit 时同时产出 .pdf + .log）
+
+选项:
+  --docopts "paper=a3,landscape,columns=3,plates=1"   linotype.cls 键值（逗号分隔）
+  --theme magazine          预置主题（追加 theme= 到 docopts）
+  --no-autofit              纯生成 .tex（不编译不搜索）— 经典管线
+  --visual                  autofit 后渲染 PDF → pixelcheck 诊断 → 修复建议
+  --pixelcheck PATH         --visual 用 pixelcheck.py 路径（默认自动探测）
+  --class linotype          文档类名（默认 linotype）
+```
+
+示例：
+```bash
+# 经典: 生成 .tex，手动 xelatex 编译
+python3 build.py plates/ out.tex --docopts "paper=a4,portrait,columns=2,plates=1" --no-autofit
+
+# Autofit: 自动版面搜索，产出收敛的 .pdf
+python3 build.py plates/ out.tex --docopts "paper=a3,landscape,columns=3,plates=1"
+
+# Autofit + 视觉验收闭环
+python3 build.py plates/ out.tex --docopts "..." --visual
+
+# 主题覆盖
+python3 build.py plates/ out.tex --docopts "..." --theme financial
 ```
 
 ## Autofit — 自动版面调整
@@ -207,7 +266,8 @@ python3 tests/run_tests.py /path/to/engine
 ├── pdfcheck.py         # PDF 后处理 QA
 ├── SKILL.md            # Claude Code skill 手册（面向 agent）
 ├── docs/
-│   └── ARCHITECTURE.md # 关键设计决策与 LaTeX 血泪经验
+│   ├── ARCHITECTURE.md       # 关键设计决策与 LaTeX 血泪经验
+│   └── DEVELOPMENT-HISTORY.md # 开发调试全记录（根因与修复）
 ├── examples/
 │   ├── plates/         # 示例内容（覆盖全部字段格式）
 │   └── sample.pdf      # 预编译示例输出

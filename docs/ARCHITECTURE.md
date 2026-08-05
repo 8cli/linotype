@@ -52,6 +52,14 @@ The winning combination: `vbox` collection + explicit `\@colht/\@colroom\content
 12. **Font loading defers to `\AtBeginDocument`** — the family names are only final after `\linotypesetup` runs in the preamble.
 13. **No `#` inside `\newenvironment` definitions** (even in comments) — it is a parameter character; "Illegal parameter number" awaits.
 14. **`\dimexpr` must be terminated with `\relax`** — a space is *skipped* (separator), so a following `/` is parsed as division ("Missing number, treated as zero"). `\the\dimexpr A+B\relax / text` works; `\space` does not.
+15. **multicol box height = natural height(N) / N — more columns = shorter content** (opposite to CSS intuition). CSS flows text into wider columns → fewer lines; LaTeX *balances* N columns so height ≈ natural/N (measured: 60 paragraphs at 8.5pt → 2-col 1038, 3-col 927, 4-col 872pt). But for very long content the curve is U-shaped (measured 120 paragraphs: 3-col 244% → 4-col 271% worse) — autofit reports the historical best, never the boundary config.
+16. **boxed multicol is a hard limit; manual `vsplit` columns are the fix** — boxed mode skips `\@colroom` and `vsplit` cannot cut a multicol block (all or nothing). Solution: typeset content at the target column width → `vbox` → `vsplit` dynamically half → parallel `\vtop`. Measured balance: 429.6/430.0pt.
+17. **`\vtop to` has an ht reference-point offset** — side-by-side measurement exceeds the target by ~5.5pt (first-line baseline). Parallel containers use natural-height `\vtop`; column-end gaps are legal underfill in newspaper layout.
+18. **full-width content after a full plate always overflows** — in main-aside, pullquote/inbrief appended after the plate overran by a measured +127/+122pt. Fix: move them *inside* the columns (column-width `\linewidth` quote; `\asidebriefs` aside stack).
+19. **binary search for the largest non-overflowing font** — inspired by tcolorbox's `tcbfitdim` lower/upper bounds. Font height is monotone → no oscillation; 0.1pt precision in ~5 compiles. Warm start (retry previous font when a knob changes) cuts ~5 compiles per knob change; direction may flip after a knob change — always retest.
+20. **autofit's bottom-margin knob replaces `\enlargethispage`** — the LaTeX-native command cannot enlarge a fixed-`\contentH` plate box; instead autofit shrinks `bottommargin` (12–16mm) when overflow < 1 line, the architectural equivalent.
+21. **image height is measured, not estimated** — papertex estimates `1.5×width + 50pt` against `\page@free` and silently skips tight images. Linotype flows the image box into the plate vbox → precise height → oversized → `Overfull plate`, never silently dropped.
+22. **xdvipdfmx rejects variable fonts** (`Invalid font: -1`) — google/fonts is now all-variable; CI must instantiate static weights via fonttools `varLib.instancer`. Local static TTFs are unaffected.
 
 ## Content pipeline
 
