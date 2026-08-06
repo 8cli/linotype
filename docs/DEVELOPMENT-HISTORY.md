@@ -170,6 +170,37 @@ Inspired by PaperFit: after autofit converges, render PDF → `pixelcheck.py` co
 
 ---
 
+## Phase 6 — 2026-08-06: imposer integration fixes (demand-supply hardening)
+
+The demand-supply loop with imposer (real newspaper production) exposed deep TeX semantics beyond Phase 1-4. All measured in real P1-P4 builds.
+
+### Bug log (chronological, 23-33)
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| 23 | P3 dual-plate body silently vanished (53.7mm, fill 100%) | `\ht\platebox` reads 0 during vbox construction → `@colht` full-page → header+multicol overflows → vsplit cuts multicol whole-box (all-or-nothing) → body dropped | `\plateheader` collects header to box (`\global\setbox` + `\unvcopy`); storycolumns `@colht = contentH − header − 4pt`; vsplit skips multicol plates |
+| 24 | `\begingroup/\endgroup` rolls back `\setbox`/`\newif` | LaTeX env wraps groups; headerbox height read as 0, multicol flag lost | `\global\setbox` + `\global\@linotype@multicoltrue` |
+| 25 | `plateheader undefined` in real build | Kpathsea loads stale cls from output dir (TEXINPUTS) | `TEXINPUTS=engine-dir:` in compile_tex |
+| 26 | mainaside horizontal overflow 10.6pt/plate | mainW = 0.6666c + g (wrong); should be 2c/3 − g/3 | corrected width formulas |
+| 27 | 1.67pt inter-plate gap | `\end{plate}` newline read as space token | `\end{plate}%` |
+| 28 | fill 199% phantom | vsplit phantom dp on hbox-parallel vbox | measure natural height via `\unvcopy` |
+| 29 | main-aside main column 66mm blank | colH cap `(contentH−60)/2` — single-column visual height ≠ half; header actually 213pt not 60pt | colH = min(natural/2, contentH − header); DECK truncated 250→120 chars |
+| 30 | P1 bottom margin 10mm overflow | cap 355 too long (287mm > 281mm viewport) | cap 340 → 723pt ≈ 97.4% |
+| 31 | `\topskip` 11pt pushed every plate down 3.9mm | plate is first box on page; topskip glue inserted | `\setlength{\topskip}{0pt}` |
+| 32 | aside column silently truncated 49.8pt (fill 97.4% fake) | `Overfull aside column` signal not consumed by parse_feedback | parse (main\|aside) column truncation >5% as overfull |
+| 33 | demand.json stale after convergence | write_demand returns None without overwriting | remove stale file when no demand |
+
+### What changed (measured)
+
+```
+P1 fill: 84% → 97.8%   P2: 89% → 97.8%   P3: 59% → 98.6%   P4: 56% → 95.9%
+top margin: 23.8 → 19.9mm (design 20)   bottom: 12.2 → 20.6-21.2mm (design 16)
+aside truncation: 49.8pt → 0
+P1 main column bottom: 193.7 → 254.5mm (blank eliminated)
+```
+
+---
+
 ## What survives
 
 - **22 LaTeX lessons** → ARCHITECTURE.md

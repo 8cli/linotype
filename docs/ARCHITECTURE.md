@@ -166,6 +166,18 @@ gs -dPDFA=2 -dBATCH -dNOPAUSE -sProcessColorModel=DeviceRGB    -sDEVICE=pdfwrite
 
 A future `pdfcheck.py --pdfa` check can verify the `OutputIntent` entry.
 
+## Additional lessons (2026-08-06, imposer integration, 23-30)
+
+23. **`\ht` of a box being constructed reads the previous value (or 0)** — `@colht` derived from `\ht\platebox` during vbox construction is garbage. Collect headers into a separate measured box.
+24. **LaTeX environment `\begin/\end` wraps `\begingroup/\endgroup`** — `\setbox` and `\newif` assignments inside are rolled back at end. Use `\global`.
+25. **Kpathsea loads the .cls next to the .tex, not your working dir** — stale class files in output dirs silently shadow the engine's. Set `TEXINPUTS=engine-dir:`.
+26. **main-aside width**: main = 2c/3 − g/3, aside = c/3 − 2g/3 (sum = contentW exactly). The naive `0.6666c + g` overflows 10.6pt.
+27. **`\end{plate}` newline is a space token** — `%` after it, or plates gain 2.51pt inter-gap glue.
+28. **vsplit phantom depth on hbox-parallel vboxes** — `\ht+\dp` after vsplit of a two-column hbox over-reports (fill 199%!). Measure natural height via `\unvcopy`.
+29. **Two side-by-side columns have the visual height of ONE column** — the main-aside main column budget is `contentH − header`, not half. The header is real (213pt with 250-char deck), not a 60pt assumption.
+30. **`\topskip` (11pt from article class) glues before the first box on a page** — a plate as first element gains 3.9mm top offset, shrinking the bottom margin. `\setlength{\topskip}{0pt}`.
+31. **vsplit truncation of side columns is silent** — `Overfull aside column` must feed autofit (truncation >5% = overfull), or fill reports a fake healthy number.
+
 ## Known limitations (accepted)
 
 - Pure text: no images/figures yet.
