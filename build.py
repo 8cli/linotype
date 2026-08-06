@@ -551,7 +551,7 @@ def visual_check(output: str, docopts: str, pixelcheck: str = '') -> int:
 
 # ---------- linotype demand 输出（imposer 需求-供给协议；--demand 时启用） ----------
 TOPIC_BY_PLATE = {0: "world/military", 1: "ai/tech", 2: "space", 3: "tech"}
-MIN_KIND_BY_PLATE = {0: "china-official", 1: "company", 2: "agency", 3: "tech-media"}
+MIN_KIND_BY_PLATE = {0: "independent", 1: "company", 2: "agency", 3: "tech-media"}
 
 
 def estimate_requests(fill: float, content_h: float, plate_idx: int, fill_min: float = FILL_MIN) -> list[dict]:
