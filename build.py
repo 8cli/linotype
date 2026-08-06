@@ -224,7 +224,7 @@ def render_plate(p: dict, idx: int) -> str:
                     items.append('')
                 out.append(r'\vspace{1mm}')
                 out.append(r'\inbrief{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
-    out.append(r'\end{plate}')
+    out.append(r'\end{plate}%')  # 血泪 #34: % 吞换行防 2.51pt 版间空格胶水
     return '\n'.join(out)
 
 
