@@ -531,8 +531,9 @@ def visual_check(output: str, docopts: str, pixelcheck: str = '') -> int:
         out = (r.stdout or '') + (r.stderr or '')
         page = os.path.basename(png).replace(stem + '-v-', '').replace('.png', '')
         if 'FAIL' in out:
-            # 提取空白带位置
-            gaps = [ln.strip() for ln in out.splitlines() if '空白带' in ln or '列' in ln and 'mm' in ln]
+            # 提取空白带位置（只匹配 pixelcheck 报告行，避免 argparse help 误入）
+            gaps = [ln.strip() for ln in out.splitlines()
+                    if re.match(r'^\s*(列\d+|[左右]半版|整页):', ln)]
             issues.append((page, gaps))
             print(f'  [FAIL] 第 {page} 页: {len(gaps)} 处空白带')
             for g in gaps[:4]:

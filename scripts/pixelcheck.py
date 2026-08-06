@@ -202,7 +202,10 @@ def main() -> int:
     ap.add_argument("--ink", type=float, default=0.005)
     ap.add_argument("--top", type=float, default=20.0)
     ap.add_argument("--bottom", type=float, default=281.0)
-    ap.add_argument("--min-gap", type=float, default=8.0)
+    ap.add_argument("--min-gap", type=float, default=12.0,
+                    help="报告的最小空白带长度 mm (默认 12；与 fill_min=0.95 对齐："
+                         "版心高 261mm 的 4.6pct 低于 5pct 留白阈值，达标底边不报 FAIL；"
+                         "真实大块留白如 38mm 照常报告)")
     ap.add_argument("--layout-file", default=None,
                     help="audit.js 输出的 layout.json 路径 (默认自动探测 image 同目录; auto 模式优先于像素启发式)")
     args = ap.parse_args()
