@@ -355,6 +355,17 @@ def parse_feedback(log: str) -> tuple:
         content_h, truncated = float(m.group(1)), float(m.group(2))
         if truncated > content_h * 0.05:
             overfull = True
+    # 血泪 #55: main/aside column 的 vsplit 截断也接入——P1 侧栏自然高
+    # 792.4pt vsplit 截到 732.6pt（丢 59.8pt ≈ 21mm），但截断后 plate
+    # content 723.7 < contentH → 不触发 Overfull plate → fill 97.4% 假
+    # 达标（内容静默丢失）。截断量 > contentH 5% 即视为 overfull 触发
+    # autofit 缩字号（截断是"装不下"，与 plate 级同一判定标准）。
+    for m in re.finditer(
+            r'Overfull (?:main|aside) column: 内容 ([\d.]+)pt\s*> contentH ([\d.]+)pt',
+            log):
+        content, content_h = float(m.group(1)), float(m.group(2))
+        if content - content_h > content_h * 0.05:
+            overfull = True
     fills = []
     for m in re.finditer(r'Plate content: ([\d.]+)pt/ contentH ([\d.]+)pt', log):
         content, content_h = float(m.group(1)), float(m.group(2))

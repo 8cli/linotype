@@ -34,6 +34,13 @@
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesClass{linotype}[2026/08/05 v1.1 Generic typesetting class]
 \LoadClass[11pt]{article}
+% 血泪 #54: 禁用 \topskip——article 默认 11pt，plate 是页面第一个盒子
+% （minipage[t] 首元素是 \vspace* 的 0 高 \hrule），页面级 \topskip 胶 =
+% 11pt − 0 = 11pt（3.88mm）插在纸顶与 minipage 之间 → 每条版整体下移，
+% 顶边距实际 23.8mm（设计 20）、底边距 12.2mm（设计 16），上下 24/12
+% 违反"上 20/下 16、左右 15"设计契约且底边小于左右。所有页面都以
+% plate 开头，\topskip=0 安全（multicol 用 \@colht 与 topskip 无关）。
+\setlength{\topskip}{0pt}
 
 % 引擎检查（借鉴 modernnewspaper）: fontspec 依赖 XeLaTeX/LuaLaTeX
 \RequirePackage{iftex}
