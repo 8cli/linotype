@@ -54,6 +54,11 @@ def tex_escape(s: str) -> str:
     # 血泪（2026-08-05）: 必须先转义特殊字符（尤其 { }），再处理 markdown 加粗/斜体。
     # 若先做 **x**→\textbf{x} 再转义 {，会生成 \textbf\{x\}（花括号被二次转义），
     # LaTeX 渲染成字面 "{"（newspaper.tex 中已见 \textbf\{Oil Market Moves:\}）。
+    # 血泪 #35: 反斜杠转义用占位符——正文含 \（路径/正则/LaTeX 敏感串）
+    # → Undefined control sequence 编译失败。先占位 \x00，最后统一还原为
+    # \textbackslash{}：若直接 replace，\textbackslash{} 的 { } 会被后续
+    # { } 转义成 \{ \}（渲染字面 "{}"，实测 a\textbackslash\{\}b）。
+    s = s.replace('\\', '\x00')
     s = s.replace('&', r'\&').replace('%', r'\%').replace('$', r'\$')
     s = s.replace('#', r'\#').replace('_', r'\_').replace('{', r'\{')
     s = s.replace('}', r'\}').replace('~', r'\textasciitilde{}')
@@ -64,6 +69,8 @@ def tex_escape(s: str) -> str:
     s = re.sub(r'\*\*(.+?)\*\*', r'\\textbf{\1}', s)
     # markdown 斜体 *x* → \textit{x}
     s = re.sub(r'(?<!\*)\*([^*]+?)\*(?!\*)', r'\\textit{\1}', s)
+    # 还原反斜杠占位符（最后——\textbackslash{} 的 {} 不再经过 { } 转义）
+    s = s.replace('\x00', r'\textbackslash{}')
     return s
 
 def parse_plate(text: str) -> dict:
