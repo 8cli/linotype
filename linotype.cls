@@ -613,23 +613,17 @@
         \fi
       \fi
       \global\@linotype@multicolfalse
-      % Overfull 判定（2026-08-06 修复）: 报告 vsplit 截断后的真实超量——
-      % 原先在 vsplit 前计算 truncated（35.2pt=4.7% < 5% → autofit 误判达标
-      % 收敛），但 vsplit 切不动 multicol 整盒时实际渲染仍超高 70pt
-      % （P2 812.7pt > 742.6pt，内容溢出到页边）。此处测量 vsplit 后
-      % 高度，仍超高才报 Overfull → autofit 压字号/失败报告。
-      \ifdim\dimexpr\ht\linotype@platebox+\dp\linotype@platebox>\contentH
-        \typeout{Overfull plate: content \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax\space> contentH \the\contentH, truncated \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox-\contentH\relax}%
+      % 自然高计量（血泪 #50）: vsplit 后的 \ht+\dp 含幻影 dp（vsplit 对含
+      % hbox 两栏的 vbox 切分时，切不动的内容变成幻影 dp——P1 mainaside
+      % 749.4pt 微超 6.8pt 触发 vsplit，fill 虚报 1479pt=199%）。
+      % 正确: \unvcopy 后量自然高（真实渲染高度）。
+      \setbox\@tempboxa=\vbox{\unvcopy\linotype@platebox}%
+      % Overfull 判定（2026-08-06 修复）: 报告真实超量（自然高 − contentH）
+      \ifdim\dimexpr\ht\@tempboxa+\dp\@tempboxa>\contentH
+        \typeout{Overfull plate: content \the\dimexpr\ht\@tempboxa+\dp\@tempboxa\relax\space> contentH \the\contentH, truncated \the\dimexpr\ht\@tempboxa+\dp\@tempboxa-\contentH\relax}%
       \fi
-      % fill typeout（autofit 消费）: 报告 vsplit 截断后的实际渲染高度。
-      % 格式: "Plate content: Xpt / contentH Ypt"（build.py 正则解析 → fill = X/Y）
-      % 血泪: \dimexpr 表达式必须用 \relax 终结——空格会被跳过，
-      % 后续的 "/" 会被当作除法运算符（"Missing number, treated as zero"）！
-      % 2026-08-06 修复: 原先在 vsplit 之前输出截断前高度，autofit 误判
-      % 溢出（P2 截断 20pt=2.7% 被报 102.7%）→ 压全局字号拖累未溢出版
-      % （P3 掉到 91.6%）。vsplit 截断是设计内兜底，fill 应反映真实版面；
-      % 严重超高由上方 truncated 量 + build.py 的 5% 阈值判定。
-      \typeout{Plate content: \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax / contentH \the\contentH}%
+      % fill typeout（autofit 消费）: 自然高（血泪 #50，幻影免疫）。
+      \typeout{Plate content: \the\dimexpr\ht\@tempboxa+\dp\@tempboxa\relax / contentH \the\contentH}%
       \vbadness=10000
       \vbox to\contentH{\unvbox\linotype@platebox\vss}%
       \makeatletter
