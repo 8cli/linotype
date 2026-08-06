@@ -703,7 +703,13 @@ def main() -> int:
             if dpath:
                 print(f'  📋 demand.json 已输出: {dpath} (imposer 按单补稿)')
             else:
-                print('  📋 demand.json: 无需求（版面全部达标）')
+                # 血泪 #53: 无需求时清空旧 demand.json（write_demand 返回 None
+                # 不覆盖 → 残留旧补稿单，SKILL.md 闭环步骤 7 以 demand.json 判续
+                # 白跑一轮。实测 P2 实际 98.2% 达标但旧文件报 93.8%）
+                stale = os.path.join(out_dir, 'demand.json')
+                if os.path.exists(stale):
+                    os.remove(stale)
+                print('  📋 demand.json: 无需求（版面全部达标，旧补稿单已清空）')
     if args.visual:
         vc = visual_check(args.output, args.docopts, args.pixelcheck)
         if vc != 0:
