@@ -495,10 +495,12 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
         if best_bs is None:
             # 全溢出（8.5 都放不下）: 确认下限
             overfull, fills, cur = compile_once(cols, BS_MIN, bm)
-        elif best_bs == lo and best_fills is not None:
-            overfull, fills, cur = best_over, best_fills, best_cur
         else:
-            # 最后确认 lo（最大不溢出近似）
+            # 2026-08-06 修复：统一重编译 lo（最终配置）。此前 best_bs == lo
+            # 时用内存缓存 fills 判定收敛，out.log/out.pdf 却停在最后一次实际
+            # 编译（二分上界试探，可能溢出）——demand/visual 误读溢出数据
+            # （实测迭代 5 达标 10.84pt，out.log 却是迭代 6 的 10.92pt 溢出
+            # 106%，parse_demand 报 P2/P3/P4 严重溢出假 FAIL）。
             overfull, fills, cur = compile_once(cols, lo, bm)
         prev_bs = lo
 
