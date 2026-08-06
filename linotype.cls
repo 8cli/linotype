@@ -391,12 +391,12 @@
 }{%
   % main 栏截断到版心（防 header + 两栏 > contentH 的残余溢出）
   \ifdim\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax>\contentH
-    \typeout{Overfull main column: 内容 \the\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax pt > contentH \the\contentH，截断}%
+    \typeout{Overfull main column: 内容 \the\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax > contentH \the\contentH，截断}%
     \setbox\linotype@maincol=\vsplit\linotype@maincol to\dimexpr\contentH-10pt\relax
   \fi
   % aside 栏截断到版心（多 story 累计超高的兜底）
   \ifdim\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol>\contentH
-    \typeout{Overfull aside column: 内容 \the\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol\relax pt > contentH \the\contentH，截断}%
+    \typeout{Overfull aside column: 内容 \the\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol\relax > contentH \the\contentH，截断}%
     \setbox\linotype@asidecol=\vsplit\linotype@asidecol to\dimexpr\contentH-10pt\relax
   \fi
   % 并排输出: vtop 自然高（不用 to\contentH——vtop to 的 ht 参考点偏移导致
@@ -435,7 +435,7 @@
     % vsplit 切两栏（左右都截断到 colH，超高 → Overfull 警告）
     \setbox\linotype@splitbox=\vsplit\linotype@mainbox to\linotype@colH
     \ifdim\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox>\linotype@colH
-      \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@colH\relax pt}%
+      \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@colH\relax}%  % 血泪 #37: \the 已含 pt，再拼 pt 变 744.34ptpt
       \setbox\linotype@mainbox=\vsplit\linotype@mainbox to\linotype@colH
     \fi
     % 并排两栏（vtop to colH 固定栏高 + vss 吸收）
