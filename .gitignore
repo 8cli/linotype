@@ -15,3 +15,10 @@ __pycache__/
 
 # Local fonts
 fonts/
+
+# 开发产物（不进公开仓库）
+SESSION-STATE.md
+ARCHIVE-README.md
+archive-newspaper.cls
+newspaper.*
+layout.json
