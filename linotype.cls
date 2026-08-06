@@ -416,12 +416,18 @@
 % 平衡），超高时截断到版心预算 + Overfull 警告——完全绕开 boxed 限制。
 % 渲染结果追加进 \linotype@maincol（mainaside 结束统一截断并排）。
 \newcommand{\mainstory}[5]{%
-  \setbox\linotype@tmpbox=\vbox{%
+  % 版头收集到独立盒（测实际高度；\storybody 设字体防 \deck/\byline 继承默认 11pt）
+  \global\setbox\linotype@headerbox=\vbox{%
     \hsize\mainW \linewidth\mainW
+    \storybody
     \kicker{#1}%
     \headline{#2}%
     \deck{#3}%
     \byline{#4}%
+  }%
+  \setbox\linotype@tmpbox=\vbox{%
+    \hsize\mainW \linewidth\mainW
+    \unvcopy\linotype@headerbox
     % 正文按半宽排: halfW = (mainW - colGap)/2（两栏 + 沟 = mainW）
     \setlength{\linotype@halfW}{0.5\dimexpr\mainW-\colGap\relax}%
     \setbox\linotype@mainbox=\vbox{%
@@ -429,16 +435,20 @@
       \storybody
       #5%
     }%
-    % 每栏预算: 平衡（自然高/2）但有版心上限 (contentH - 已用)/2（近似 header + 余量）
+    % 每栏预算: 平衡（自然高/2），上限 = contentH − 版头（单栏视觉高度——
+    % 血泪 #49 根本修复: 两栏并排的视觉高度 = 单栏高度，不是两栏之和！
+    % 原上限 (contentH-60)/2 把单栏算成总高一半 → 版头 213 + 单栏 341 =
+    % 554pt 只占 contentH 742.6 的 74% → main 栏底部空 66mm。
+    % 正确: 单栏上限 = contentH − 版头 = 529.6pt，版头 + 单栏 = contentH 填满）
     \setlength{\linotype@colH}{0.5\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox\relax}%
-    \setlength{\linotype@colH}{\minof{\linotype@colH}{0.5\dimexpr\contentH-60pt\relax}}%
+    \setlength{\linotype@colH}{\minof{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox\relax}}%
     % vsplit 切两栏（左右都截断到 colH，超高 → Overfull 警告）
     \setbox\linotype@splitbox=\vsplit\linotype@mainbox to\linotype@colH
     \ifdim\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox>\linotype@colH
       \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@colH\relax}%  % 血泪 #37: \the 已含 pt，再拼 pt 变 744.34ptpt
       \setbox\linotype@mainbox=\vsplit\linotype@mainbox to\linotype@colH
     \fi
-    % 并排两栏（vtop to colH 固定栏高 + vss 吸收）
+    % 并排两栏（vtop to colH 固定栏高 + vss 吸收——单栏视觉高 = colH）
     \par\noindent\hbox to\mainW{%
       \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@splitbox\vss}%
       \hfil
