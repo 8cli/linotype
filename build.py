@@ -40,7 +40,7 @@ BS_MIN, BS_MAX = 8.5, 11.0                    # 正文字号边界（pt），二
 BS_BINARY_EPS = 0.1                           # 二分字号精度（pt）
 COLS_MIN, COLS_MAX = 2, 4                     # 栏数边界
 BM_MIN, BM_MAX = 12.0, 16.0                   # 版心底边距边界（mm，第三旋钮: 溢出<一行时微调）
-FILL_MIN = 0.45                               # 太空容忍下界（利用率 = 内容高/版心高；--docopts fill_min= 可覆盖）
+FILL_MIN = 0.95                               # 太空容忍下界（利用率 = 内容高/版心高；--docopts fill_min= 可覆盖）
 MAX_AUTOFIT_ITERS = 16                        # 迭代硬上限（防意外死循环）
 # 纸张竖版尺寸 (mm)，用于精确计算版心高（bottommargin 微调的量）
 PAPER_H_MM = {'a3': 297, 'a4': 297, 'letter': 279}
@@ -193,13 +193,15 @@ def render_plate(p: dict, idx: int) -> str:
                 out.append('')
                 out.append(r'\noindent ' + para if not para.startswith('\\noindent') else para)
     # In Brief（main-aside 已在分支内输出 \asidebriefs，此处仅等宽布局）
+    # 2026-08-06: 支持 >3 条简讯——每 3 条一组多行堆叠（填充不足版放 6 条 = 2 行）
     if p['briefs'] and p['layout'] != 'main-aside':
         label = 'IN BRIEF'
-        items = p['briefs'][:3]
-        while len(items) < 3:
-            items.append('')
-        out.append(r'\vspace{1mm}')
-        out.append(r'\inbrief{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
+        for g in range(0, len(p['briefs']), 3):
+            items = p['briefs'][g:g + 3]
+            while len(items) < 3:
+                items.append('')
+            out.append(r'\vspace{1mm}')
+            out.append(r'\inbrief{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
     out.append(r'\end{plate}')
     return '\n'.join(out)
 
