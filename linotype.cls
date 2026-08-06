@@ -297,7 +297,10 @@
 % 跨栏标题（借鉴 papertex 的 \expandedtitle）: 全版宽，打破所有栏。
 % 在进入 storycolumns 前调用，标题独占整行（宽 = \contentW）。
 \newcommand{\expandedtitle}[1]{%
-  \par\noindent{\fontdisplay\fontsize{26pt}{28pt}\selectfont\bfseries#1\par}%
+  % 比例化字号（血泪 #36）: 原固定 26pt——bodyfontsize 8.5→11pt 时正文
+  % 原子线性缩放而跨栏标题纹丝不动（比例 3.06×→2.36×），autofit 缩字后
+  % 标题视觉比例失调。26pt/9.5pt ≈ 274%。
+  \par\noindent{\fontdisplay\fontsize{\dimexpr\linotype@bs*274/100\relax}{\dimexpr\linotype@bs*295/100\relax}\selectfont\bfseries#1\par}%
   \noindent\rule{\contentW}{0.4pt}\par
   \vspace{0.8mm}%
 }
