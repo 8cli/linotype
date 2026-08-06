@@ -630,8 +630,16 @@ def write_demand(log_path: str, out_dir: str, fill_min: float = FILL_MIN) -> str
     if not os.path.exists(log_path):
         return None
     log_text = open(log_path, encoding="utf-8", errors="replace").read()
-    if re.search(r"Overfull plate: content", log_text):
-        return None  # 溢出时 autofit 未收敛，不发补稿单（应先修内容）
+    # 2026-08-06 修复（血泪 #41）: 必须按 truncated > 5% 判定溢出拒单——
+    # 原 re.search("Overfull plate") 只要出现字样就拒单，P4 微超 33.7pt
+    # （<5% 阈值 37.1pt，autofit 已容忍）会误杀其他版的需求单（P2 76.9%
+    # 补稿需求被吞，闭环不触发）。
+    for m in re.finditer(
+            r'Overfull plate: content [\d.]+pt\s*> contentH ([\d.]+)pt, truncated ([\d.]+)',
+            log_text):
+        content_h, truncated = float(m.group(1)), float(m.group(2))
+        if truncated > content_h * 0.05:
+            return None  # 严重溢出: autofit 未收敛，不发补稿单（应先修内容）
     pairs = re.findall(r"Plate content: ([\d.]+)pt/ contentH ([\d.]+)pt", log_text)
     if not pairs:
         return None
