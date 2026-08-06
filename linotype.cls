@@ -327,15 +327,42 @@
 % 进入时都设，天然覆盖两个 plate；无残留副作用。
 % storycolumns: 正文分栏环境（借鉴 papertex 的 news 环境——支持每版独立列数）
 % 可选参数 [列数] 覆盖全局 \linotypecols（默认用全局）。
+% 版头收集盒（2026-08-06 修复——血泪 #26）:
+% 版头(kicker/headline/deck/byline)收集到独立盒，storycolumns 的 @colht =
+% contentH − 版头实际高度。此前 @colht 用 \ht\linotype@platebox（vbox 构造中
+% 读 =0）→ multicol 用满 contentH → 版头+multicol 超 contentH → vsplit 兜底
+% 触发 → vsplit 切不动 multicol 整盒（血泪 #5）→ 整盒被丢弃 → 版面只剩版头
+% （P3 双版实测 53.7mm，fill 却报 100%）。\plateheader 使版头高度可测。
+\newenvironment{plateheader}{%
+  % \global\setbox 关键（血泪 #26）: LaTeX 环境 \begin/\end 包 \begingroup/
+  % \endgroup，\setbox 赋值在 \endgroup 时回滚 → storycolumns 读 headerbox=0
+  % （版头高丢失 → @colht 满版 → vsplit 触发 → multicol 整盒被丢）。
+  % \global 使赋值跨组保留。\unvcopy 而非 \unvbox（后者解包后清空盒寄存器）。
+  \global\setbox\linotype@headerbox=\vbox\bgroup
+    \hsize\contentW \linewidth\contentW \textwidth\contentW \columnwidth\contentW
+}{%
+  \egroup
+  \unvcopy\linotype@headerbox
+}
+
+\newif\if@linotype@multicol  % platebox 含 multicol → vsplit 兜底跳过
 \newenvironment{storycolumns}[1][\linotypecols]{%
-  % 版心栏高: multicol 栏高预算取 \@colht（=\textheight 整页 297mm）而非版心
-  % \contentH（261mm）→ 内容排满整页而非停在版心。进入时设 \@colht/\@colroom
-  % = \contentH，让多栏平衡到版心。
+  % 版心栏高: multicol 栏高预算取 \@colht/\@colroom = contentH − 版头实际高度
+  % （\linotype@headerbox，\plateheader 收集）→ 多栏平衡到剩余空间，
+  % 版头 + 多栏恰好填满版心。
   % 血泪: \@colht/\@colroom 是页面级全局量！multicol 结束后必须恢复为
   % \textheight，否则后续 plate 的分页判断用错误的栏高（双版第二版被推走、
   % 空白首页）。
-  \global\@colht\contentH%
-  \global\@colroom\contentH%
+  % 4pt 余量: multicol 平衡后盒高可能比 @colht 高 2-3pt（balance 溢出）。
+  % 血泪 #26: vsplit 对 multicol 整盒是全切——plate 的 vsplit 兜底必须
+  % 跳过含 multicol 的版（\if@linotype@multicol），否则超高时整盒被丢、
+  % fill 虚高（745/742.6=100.3% 假达标）。multicol 超高时自然溢出 +
+  % Overfull 报告 → autofit 缩字号（正确信号，不静默）。
+  \global\@linotype@multicoltrue  % \global: \newif 的 true 是 \let 赋值，
+                                  % \begin/\end 的 \begingroup 回滚 → plate 端
+                                  % 读 false → vsplit 误触发丢 multicol
+  \global\@colht\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-4pt\relax
+  \global\@colroom\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-4pt\relax
   \begin{multicols}{#1}%
   \storybody
 }{%
@@ -362,12 +389,12 @@
   % main 栏截断到版心（防 header + 两栏 > contentH 的残余溢出）
   \ifdim\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax>\contentH
     \typeout{Overfull main column: 内容 \the\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax pt > contentH \the\contentH，截断}%
-    \setbox\linotype@maincol=\vsplit\linotype@maincol to\dimexpr\contentH-10pt
+    \setbox\linotype@maincol=\vsplit\linotype@maincol to\dimexpr\contentH-10pt\relax
   \fi
   % aside 栏截断到版心（多 story 累计超高的兜底）
   \ifdim\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol>\contentH
     \typeout{Overfull aside column: 内容 \the\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol\relax pt > contentH \the\contentH，截断}%
-    \setbox\linotype@asidecol=\vsplit\linotype@asidecol to\dimexpr\contentH-10pt
+    \setbox\linotype@asidecol=\vsplit\linotype@asidecol to\dimexpr\contentH-10pt\relax
   \fi
   % 并排输出: vtop 自然高（不用 to\contentH——vtop to 的 ht 参考点偏移导致
   % hbox 总高超 5.5pt，且报纸允许列尾空隙=欠满，无需强制填满）
@@ -481,18 +508,33 @@
 }
 
 % In Brief 摘要条（3 条并排，参数: 标题 + 3 条内容）
+% In Brief 摘要条: 栏宽自适应（2026-08-06 修复——血泪 #25）。
+% 原设计是"通栏 3 栏并排"（minipage 0.319\contentW ×3），只适合全版宽；
+% 移入 storycolumns 列内（\linewidth≈60mm）后 3 个并排 = 178mm 巨盒，
+% multicol 无法平衡 → 整盒静默消失（P3 正文丢失，Overfull 348pt）。
+% 修复: \linewidth < 0.6\contentW 时按单列堆叠（同 \asidebriefs），
+% 通栏上下文保留 3 栏并排。multicol 列内 \linewidth = 列宽（自适应），
+% 侧栏渲染 \linewidth=\asideW（自适应）。
 \newcommand{\inbrief}[4]{%
   {\fontsans\fontsize{\dimexpr\linotype@bs*79/100\relax}{\dimexpr\linotype@bs*95/100\relax}\selectfont\addfontfeature{LetterSpace=12}\textbf{#1}}\\[0.5mm]
-  \noindent\rule{\contentW}{0.4pt}\\[1.5mm]
-  \begin{minipage}[t]{0.319\contentW}
-  {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #2}
-  \end{minipage}\hspace{0.02\contentW}%
-  \begin{minipage}[t]{0.319\contentW}
-  {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #3}
-  \end{minipage}\hspace{0.02\contentW}%
-  \begin{minipage}[t]{0.319\contentW}
-  {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #4}
-  \end{minipage}%
+  \noindent\rule{\linewidth}{0.4pt}\\[1.5mm]
+  \ifdim\dimexpr\linewidth\relax<0.6\dimexpr\contentW\relax
+    % 栏内模式: 单列堆叠（brief 各占一行）
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #2}\par\vspace{0.8mm}%
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #3}\par\vspace{0.8mm}%
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #4}\par
+  \else
+    % 通栏模式: 3 栏并排
+    \begin{minipage}[t]{0.319\linewidth}
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #2}
+    \end{minipage}\hspace{0.02\linewidth}%
+    \begin{minipage}[t]{0.319\linewidth}
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #3}
+    \end{minipage}\hspace{0.02\linewidth}%
+    \begin{minipage}[t]{0.319\linewidth}
+    {\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #4}
+    \end{minipage}%
+  \fi
 }
 
 % ---------- 版（Plate）容器 ----------
@@ -546,17 +588,35 @@
         \setlength{\postmulticols}{0pt}%
 }{%
       \egroup
-      % fill typeout（autofit 消费）: 总是输出内容高度，不只溢出时。
+      % vsplit 兜底: 内容超高时截到版心（血泪 #26: vsplit 对 multicol 整盒
+      % 是全切——一旦触发，multicol 内容整体被丢，只剩版头、fill 虚高假
+      % 达标）。含 multicol 的版（\if@linotype@multicol）跳过 vsplit：超高
+      % 时自然溢出 + 下方 Overfull 报告 → autofit 缩字号（正确信号）。
+      % 纯段落版（main-aside 侧栏等）vsplit 正常截断（可分割，安全）。
+      % 阈值 contentH+5pt: 2-3pt 微超（multicol balance 溢出）不触发。
+      \if@linotype@multicol\else
+        \ifdim\dimexpr\ht\linotype@platebox+\dp\linotype@platebox>\dimexpr\contentH+5pt\relax
+          \setbox\linotype@platebox=\vsplit\linotype@platebox to\dimexpr\contentH+2pt\relax
+        \fi
+      \fi
+      \global\@linotype@multicolfalse
+      % Overfull 判定（2026-08-06 修复）: 报告 vsplit 截断后的真实超量——
+      % 原先在 vsplit 前计算 truncated（35.2pt=4.7% < 5% → autofit 误判达标
+      % 收敛），但 vsplit 切不动 multicol 整盒时实际渲染仍超高 70pt
+      % （P2 812.7pt > 742.6pt，内容溢出到页边）。此处测量 vsplit 后
+      % 高度，仍超高才报 Overfull → autofit 压字号/失败报告。
+      \ifdim\dimexpr\ht\linotype@platebox+\dp\linotype@platebox>\contentH
+        \typeout{Overfull plate: content \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax\space> contentH \the\contentH, truncated \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox-\contentH\relax}%
+      \fi
+      % fill typeout（autofit 消费）: 报告 vsplit 截断后的实际渲染高度。
       % 格式: "Plate content: Xpt / contentH Ypt"（build.py 正则解析 → fill = X/Y）
       % 血泪: \dimexpr 表达式必须用 \relax 终结——空格会被跳过，
       % 后续的 "/" 会被当作除法运算符（"Missing number, treated as zero"）！
+      % 2026-08-06 修复: 原先在 vsplit 之前输出截断前高度，autofit 误判
+      % 溢出（P2 截断 20pt=2.7% 被报 102.7%）→ 压全局字号拖累未溢出版
+      % （P3 掉到 91.6%）。vsplit 截断是设计内兜底，fill 应反映真实版面；
+      % 严重超高由上方 truncated 量 + build.py 的 5% 阈值判定。
       \typeout{Plate content: \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax / contentH \the\contentH}%
-      % vsplit 兜底: 内容仍超高时截到版心（multicol 已被 @colht 限高，
-      % 此分支主要处理非 multicol 内容的超高）
-      \ifdim\dimexpr\ht\linotype@platebox+\dp\linotype@platebox>\contentH
-        \typeout{Overfull plate: content \the\dimexpr\ht\linotype@platebox+\dp\linotype@platebox\relax > contentH \the\contentH}%
-        \setbox\linotype@platebox=\vsplit\linotype@platebox to\dimexpr\contentH+2pt
-      \fi
       \vbadness=10000
       \vbox to\contentH{\unvbox\linotype@platebox\vss}%
       \makeatletter

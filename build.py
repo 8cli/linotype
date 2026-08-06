@@ -159,6 +159,12 @@ def render_plate(p: dict, idx: int) -> str:
         out.append(r'\end{mainaside}')
     else:
         # 等宽多栏（默认）
+        # 2026-08-06 血泪 #26: 版头必须包进 \plateheader（收集到独立盒），
+        # storycolumns 的 @colht = contentH − 版头实际高度。此前版头直接
+        # 排在 vbox 里，@colht 读 \ht\platebox（构造中=0）→ multicol 满版
+        # → 版头+multicol 超 contentH → vsplit 切不动 multicol 整盒丢弃 →
+        # 版面只剩版头（P3 双版 53.7mm，fill 却报 100%）。
+        out.append(r'\begin{plateheader}')
         if p['kicker']:
             out.append(r'\kicker{' + p['kicker'] + '}')
         if p['headline']:
@@ -173,35 +179,51 @@ def render_plate(p: dict, idx: int) -> str:
             out.append(r'\expandedtitle{' + p['expanded'] + '}')
         if p['image']:
             out.append(r'\photo{' + p['image'] + '}{' + p['imagewidth'] + '}{' + p['imagecaption'] + '}')
-        if p['body']:
+        out.append(r'\end{plateheader}')
+        # 2026-08-06 结构修复: pullquote/STORY-B/inbrief 全部移入 storycolumns
+        # （multicol 内）——原先排在 multicol 外，版头 + multicol 满版 +
+        # 版外内容 = 必超版心（P2 812.7pt > 742.6pt 溢出到页边，实测 285-295mm
+        # 有墨迹）。multicol 平衡包含所有内容 + @colht 动态剩余空间 → 总高 = contentH。
+        has_story = bool(p['body'] or p['pullquote'] or p['stories'] or p['briefs'])
+        if has_story:
             col_opt = '[' + p['columns'] + ']' if p['columns'] else ''
             out.append(r'\begin{storycolumns}' + col_opt)
-            out.append(r'\noindent ' + p['body'][0])
-            for para in p['body'][1:]:
-                out.append('')
-                out.append(para)
+            if p['body']:
+                out.append(r'\noindent ' + p['body'][0])
+                for para in p['body'][1:]:
+                    out.append('')
+                    out.append(para)
+            if p['pullquote']:
+                out.append(r'\vspace{0.5mm}')
+                out.append(r'\pullquote{' + p['pullquote'] + '}')
+            # 副故事
+            for st in p['stories']:
+                if st['headline']:
+                    out.append(r'\vspace{1mm}')
+                    out.append(r'\subheadline{' + st['headline'] + '}')
+                for para in st['body']:
+                    out.append('')
+                    out.append(r'\noindent ' + para if not para.startswith('\\noindent') else para)
+            # In Brief（main-aside 已用 \asidebriefs，此处仅等宽布局进 multicol）
+            # 2026-08-06: 支持 >3 条简讯——每 3 条一组多行堆叠
+            if p['briefs']:
+                label = 'IN BRIEF'
+                for g in range(0, len(p['briefs']), 3):
+                    items = p['briefs'][g:g + 3]
+                    while len(items) < 3:
+                        items.append('')
+                    out.append(r'\vspace{1mm}')
+                    out.append(r'\inbrief{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
             out.append(r'\end{storycolumns}')
-        if p['pullquote']:
-            out.append(r'\vspace{0.5mm}')
-            out.append(r'\pullquote{' + p['pullquote'] + '}')
-        # 副故事
-        for st in p['stories']:
-            if st['headline']:
+        elif p['briefs'] and p['layout'] != 'main-aside':
+            # body/pullquote/stories 全空但只有简讯（罕见）: 保持原外置渲染
+            label = 'IN BRIEF'
+            for g in range(0, len(p['briefs']), 3):
+                items = p['briefs'][g:g + 3]
+                while len(items) < 3:
+                    items.append('')
                 out.append(r'\vspace{1mm}')
-                out.append(r'\subheadline{' + st['headline'] + '}')
-            for para in st['body']:
-                out.append('')
-                out.append(r'\noindent ' + para if not para.startswith('\\noindent') else para)
-    # In Brief（main-aside 已在分支内输出 \asidebriefs，此处仅等宽布局）
-    # 2026-08-06: 支持 >3 条简讯——每 3 条一组多行堆叠（填充不足版放 6 条 = 2 行）
-    if p['briefs'] and p['layout'] != 'main-aside':
-        label = 'IN BRIEF'
-        for g in range(0, len(p['briefs']), 3):
-            items = p['briefs'][g:g + 3]
-            while len(items) < 3:
-                items.append('')
-            out.append(r'\vspace{1mm}')
-            out.append(r'\inbrief{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
+                out.append(r'\inbrief{' + label + '}{' + items[0] + '}{' + items[1] + '}{' + items[2] + '}')
     out.append(r'\end{plate}')
     return '\n'.join(out)
 
@@ -293,10 +315,16 @@ def compile_tex(output: str) -> str:
     out_dir = os.path.dirname(out_abs)
     tex_name = os.path.basename(out_abs)
     stem = os.path.splitext(tex_name)[0]
+    # TEXINPUTS 锁定引擎目录优先（2026-08-06 血泪 #27）: Kpathsea 优先加载
+    # tex 文件所在目录的 cls——产物目录残留旧版 linotype.cls 会静默覆盖
+    # 引擎目录的新版（实测 plateheader undefined，编译用 daily 目录旧 cls）。
+    # TEXINPUTS=引擎目录: 使引擎目录 cls 优先，末尾冒号补默认路径。
+    env = dict(os.environ)
+    env['TEXINPUTS'] = os.getcwd() + os.pathsep + env.get('TEXINPUTS', '')
     r = subprocess.run(
         ['xelatex', '-interaction=nonstopmode', '-halt-on-error',
          f'-output-directory={out_dir}', tex_name],
-        cwd=os.getcwd(), capture_output=True, text=True, timeout=300)
+        cwd=os.getcwd(), env=env, capture_output=True, text=True, timeout=300)
     log_path = os.path.join(out_dir, stem + '.log')
     if os.path.exists(log_path):
         with open(log_path, encoding='utf-8', errors='replace') as f:
@@ -307,10 +335,19 @@ def parse_feedback(log: str) -> tuple:
     """解析编译日志 → (overfull: bool, fills: list[float])。
     依赖 linotype.cls 的 plate 环境输出:
       "Plate content: Xpt/ contentH Ypt"（总是输出）→ fill = X/Y
-      "Overfull plate: content Xpt> contentH Ypt"（仅溢出）→ 溢出判定
+      "Overfull plate: content Xpt> contentH Ypt, truncated Npt"（超高时）
+      → 溢出判定：仅截断量 N > contentH 的 5% 视为严重溢出（需压字号/增栏）；
+        微小截断（如 20pt = 2.7%）由 vsplit 兜底吸收，是设计内正常行为，
+        不拖累全局字号（2026-08-06: P2 微超曾把 P3 拖到 91.6%）。
     返回所有版的 fill 列表（autofit 分别用 min 判太空、max 判溢出程度）。
     """
-    overfull = bool(re.search(r'Overfull plate: content', log))
+    overfull = False
+    for m in re.finditer(
+            r'Overfull plate: content [\d.]+pt\s*> contentH ([\d.]+)pt, truncated ([\d.]+)',
+            log):
+        content_h, truncated = float(m.group(1)), float(m.group(2))
+        if truncated > content_h * 0.05:
+            overfull = True
     fills = []
     for m in re.finditer(r'Plate content: ([\d.]+)pt/ contentH ([\d.]+)pt', log):
         content, content_h = float(m.group(1)), float(m.group(2))
