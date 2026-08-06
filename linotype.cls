@@ -237,7 +237,7 @@
   \setlength{\padBottom}{\@bottommargin}%
   \setlength{\contentH}{\paperH - \padTop - \padBottom}%
   \setlength{\colW}{0.3333\contentW}%
-  \setlength{\mainW}{0.6666\contentW + \colGap}%
+  \setlength{\mainW}{\dimexpr 0.6666\contentW - 0.3333\colGap\relax}%  % 2c/3 − g/3（血泪 #28: 原 +g 致每版水平溢出 10.6pt、两栏不对称）
   \setlength{\boundary}{\paperH - \padBottom}%
   % 段落格式（依赖 \colGap）
   \setlength{\parindent}{1em}%
@@ -381,8 +381,8 @@
 \newlength{\asideW}
 \newenvironment{mainaside}{%
   \par\noindent%
-  \setlength{\mainW}{0.6666\contentW + \colGap}%   % 2 栏 + 1 沟 = 118.75mm
-  \setlength{\asideW}{0.3333\contentW - \colGap}%  % 1 栏 - 沟 = 57.5mm
+  \setlength{\mainW}{\dimexpr 0.6666\contentW - 0.3333\colGap\relax}%  % 2c/3 − g/3 = 118.75mm（血泪 #28: 原 +g 溢出）
+  \setlength{\asideW}{\dimexpr 0.3333\contentW - 0.6666\colGap\relax}% % c/3 − 2g/3 = 57.5mm
   \global\setbox\linotype@maincol=\vbox{}%          % 清空收集盒
   \global\setbox\linotype@asidecol=\vbox{}%
 }{%
