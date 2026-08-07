@@ -237,3 +237,30 @@ P1 fill: 98% → 101%   P2 98%  P3 96%  P4 96% (all ≥95% acceptance)
 Overfull errors: 0   visual acceptance: both pages PASS
 regression: 30/30 (added test_mainbriefs) + imposer 58/58
 ```
+
+## Phase 8 — 2026-08-07: front-page publication date (user: "add the publication date on page one of every paper")
+
+User request: every paper's first page must carry its publication date for issue identification. P1 previously had no masthead — the date appeared only in story bylines.
+
+### What was added
+
+- **`\dateline{date}` macro**: double rules + letterspaced centered date + double rules (~6.7mm), rendered from a new generic `DATE:` plate field (build.py parses → emits before mainaside/plateheader). imposer emits it only on P1 via `build_plates --date "Aug 6, 2026"` (default = local today, matching the `~/news/daily/$(date +%F)` dir convention; back-regeneration passes `--date` explicitly).
+- **Height-budget integration** (`\linotype@topused`): the dateline's height is subtracted from mainaside's truncation budget, plateheader's `@colht`, and mainstory's `colH`. Without it, dateline + full mainaside exceeds `\contentH` and the plate-level vsplit cannot split the mainaside hbox (all-or-nothing) — the entire main story would be silently discarded, leaving only the dateline. Reset to 0 at each plate start.
+- **Probe-discovered TeX traps** (see bug 35): `\begin{center}` is a `\trivlist` inside a vbox (pushed the date line down 8mm, bloated block height 3×); `\rule{...}{...}\\[x]` paragraph lines carry the `\baselineskip` strut (rule pairs 5.1mm apart instead of 0.5mm — masthead/sectionstrip shared this latent defect). Fix: `\offinterlineskip` + `\hbox` rows (strut-free) + `\hfil` centering; also applied to `\sectionstrip`.
+- **Test** `test_dateline`: DATE → `\dateline` before mainaside, compiles 0 Overfull, and **PDF-text assertions** that both the date AND the main-story body survive — a regression net for the silent-mainaside-drop failure mode.
+
+### Bug log (35)
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| 35 | Dateline date text missing / rules 5.1mm apart / block 3× too tall | `\begin{center}` inside a vbox is a trivlist whose `\topsep` pushes the line down ~8mm; `\rule+\\` lines carry the baselineskip strut so rule pairs sit 5.1mm apart instead of 0.5mm | `\offinterlineskip` + `\hbox` rows + `\hfil` centering (no struts, exact geometry); same fix for `\sectionstrip` |
+
+### What changed (measured)
+
+```
+P1 top: (no masthead/date) → "AUG 6, 2026" dateline, centroid 105.1mm vs content center 105.0mm (exact)
+P1 fill: 101%   P2 104%   P3 101%   P4 101% (all ≥95%)
+pdfcheck 5/5, visual acceptance both pages 4/4 PASS, demand: none
+regression: 35/35 (added test_dateline) + imposer 59/59
+delivered: ~/news/daily/2026-08-06/out.pdf regenerated with --date "Aug 6, 2026"
+```
