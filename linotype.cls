@@ -217,6 +217,11 @@
 \newlength\linotype@colH    % 每栏高度预算（vtop 栏高）
 \newlength\linotype@splitH  % vsplit 切分高度（内容平衡 = 正文自然高/2）
 \newlength\linotype@headerH % mainstory 报头高度
+\newlength\linotype@spaceleft % 主栏补白剩余空间（colH − 正文栏高 − 最小间隔）
+\newbox\linotype@briefbox  % 主栏左补白简讯盒（先测高再 vsplit 截断）
+\newbox\linotype@briefboxR % 主栏右补白简讯盒（独立——\def 执行时才 \unvbox，
+                           % 共用一盒会被 rightbrief 覆盖 → 两栏都显示右简讯）
+\newbox\linotype@cutbox    % vsplit 截断后的简讯（剩余丢弃）
 \newbox\linotype@maincol    % mainaside 主栏收集盒（2026-08-05 顶层化重构）
 \newbox\linotype@asidecol   % mainaside 侧栏收集盒
 \newbox\linotype@tmpbox     % 渲染临时盒
@@ -482,12 +487,40 @@
       \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@splitH\relax}%  % 血泪 #37: \the 已含 pt，再拼 pt 变 744.34ptpt
       \setbox\linotype@mainbox=\vsplit\linotype@mainbox to\linotype@splitH
     \fi
-    % 并排两栏（vtop to colH 固定栏高 + vss 吸收——单栏视觉高 = colH；
-    % 2026-08-07: 栏底补白 #6/#7 排在 \vss 后——主条不足 colH 时简讯贴栏底）
+    % 并排两栏（vtop to colH 固定栏高）。
+    % 栏底补白（#6/#7，2026-08-07 重构——血泪: 纯 \vss\mainbrief 在
+    % 正文+简讯 > colH 时 vss 压到 0，简讯紧贴正文最后一行（视觉重叠））。
+    % 正确做法: 简讯盒先测高 → vsplit 截断到剩余空间（colH − 正文栏高 −
+    % 3mm 最小间隔）→ vtop 里 \vskip 3mm plus 1fil（最小间隔 + 弹性贴底）。
+    % 空间足够 → 简讯贴底；空间不足 → 截断不溢出，绝不与正文重叠。
+    \ifx\empty#6\empty
+      \def\linotype@leftbrief{}%
+    \else
+      \setbox\linotype@briefbox=\vbox{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\mainbrief{#6}}%
+      \setlength{\linotype@spaceleft}{\dimexpr\linotype@colH-\ht\linotype@splitbox-\dp\linotype@splitbox-3mm\relax}%
+      \ifdim\dimexpr\ht\linotype@briefbox+\dp\linotype@briefbox>\linotype@spaceleft
+        % 血泪 #46 类（2026-08-07）: \setbox\A=\B 中 \B 是盒号整数不合法——
+        % RHS 需 \box 前缀（\box\B 引用盒）；\linotype@cutbox 是 \chardef 整数
+        \setbox\linotype@cutbox=\vsplit\linotype@briefbox to\linotype@spaceleft
+        \setbox\linotype@briefbox=\box\linotype@cutbox
+      \fi
+      \def\linotype@leftbrief{\vskip 3mm plus 1fil\unvbox\linotype@briefbox}%
+    \fi
+    \ifx\empty#7\empty
+      \def\linotype@rightbrief{}%
+    \else
+      \setbox\linotype@briefboxR=\vbox{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\mainbrief{#7}}%
+      \setlength{\linotype@spaceleft}{\dimexpr\linotype@colH-\ht\linotype@mainbox-\dp\linotype@mainbox-3mm\relax}%
+      \ifdim\dimexpr\ht\linotype@briefboxR+\dp\linotype@briefboxR>\linotype@spaceleft
+        \setbox\linotype@cutbox=\vsplit\linotype@briefboxR to\linotype@spaceleft
+        \setbox\linotype@briefboxR=\box\linotype@cutbox
+      \fi
+      \def\linotype@rightbrief{\vskip 3mm plus 1fil\unvbox\linotype@briefboxR}%
+    \fi
     \par\noindent\hbox to\mainW{%
-      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@splitbox\vss\mainbrief{#6}}%
+      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@splitbox\linotype@leftbrief}%
       \hfil
-      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@mainbox\vss\mainbrief{#7}}%
+      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@mainbox\linotype@rightbrief}%
     }%
     \par\vspace{1mm}%
   }%
