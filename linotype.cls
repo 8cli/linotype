@@ -214,7 +214,8 @@
 \newbox\linotype@asidebox   % asidestory 内容盒
 \newbox\linotype@headerbox  % mainstory 报头收集盒（量高度用）
 \newlength\linotype@halfW   % 半栏宽 = (mainW - colGap)/2
-\newlength\linotype@colH    % 每栏高度预算
+\newlength\linotype@colH    % 每栏高度预算（vtop 栏高）
+\newlength\linotype@splitH  % vsplit 切分高度（内容平衡 = 正文自然高/2）
 \newlength\linotype@headerH % mainstory 报头高度
 \newbox\linotype@maincol    % mainaside 主栏收集盒（2026-08-05 顶层化重构）
 \newbox\linotype@asidecol   % mainaside 侧栏收集盒
@@ -425,7 +426,17 @@
 % 解法: 内容按半宽排进 vbox，\vsplit 动态切半（probe 实测左右栏 429.6/430.0pt
 % 平衡），超高时截断到版心预算 + Overfull 警告——完全绕开 boxed 限制。
 % 渲染结果追加进 \linotype@maincol（mainaside 结束统一截断并排）。
-\newcommand{\mainstory}[5]{%
+% 栏底补白简讯（2026-08-07 用户要求: P1 主栏底部空 37-41mm——主条 340 词
+% 自然高/2 = 481pt < colH 上限 598pt，\vss 留白；报纸标准做法是栏底补白）。
+% #1 = 单条简讯文本（build.py 已转义，可含 \textbf{标题:}）；空参自动跳过。
+% 排进 vtop 的 \vss 之后 → 内容顶对齐、简讯底对齐（补白不占正文空间）。
+\newcommand{\mainbrief}[1]{%
+  \ifx\empty#1\empty\else
+    \par\vspace{0.6mm}%
+    \noindent{\fontbody\fontsize{\dimexpr\linotype@bs*89/100\relax}{\dimexpr\linotype@bs*115/100\relax}\selectfont #1\par}%
+  \fi
+}
+\newcommand{\mainstory}[7]{%
   % 版头收集到独立盒（测实际高度；\storybody 设字体防 \deck/\byline 继承默认 11pt）
   \global\setbox\linotype@headerbox=\vbox{%
     \hsize\mainW \linewidth\mainW
@@ -445,24 +456,38 @@
       \storybody
       #5%
     }%
-    % 每栏预算: 平衡（自然高/2），上限 = contentH − 版头（单栏视觉高度——
-    % 血泪 #49 根本修复: 两栏并排的视觉高度 = 单栏高度，不是两栏之和！
-    % 原上限 (contentH-60)/2 把单栏算成总高一半 → 版头 213 + 单栏 341 =
-    % 554pt 只占 contentH 742.6 的 74% → main 栏底部空 66mm。
-    % 正确: 单栏上限 = contentH − 版头 = 529.6pt，版头 + 单栏 = contentH 填满）
-    \setlength{\linotype@colH}{0.5\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox\relax}%
-    \setlength{\linotype@colH}{\minof{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox\relax}}%
-    % vsplit 切两栏（左右都截断到 colH，超高 → Overfull 警告）
-    \setbox\linotype@splitbox=\vsplit\linotype@mainbox to\linotype@colH
-    \ifdim\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox>\linotype@colH
-      \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@colH\relax}%  % 血泪 #37: \the 已含 pt，再拼 pt 变 744.34ptpt
-      \setbox\linotype@mainbox=\vsplit\linotype@mainbox to\linotype@colH
+    % 切分高度: 平衡（正文自然高/2）——两栏内容量相等（vsplit 切行界）
+    \setlength{\linotype@splitH}{0.5\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox\relax}%
+    % 栏高（vtop to）: 无栏底补白时 = splitH（血泪 #49: 原上限把单栏算成
+    % 总高一半 → 主栏底部空 66mm；min(正文/2, contentH−版头) 让短正文栏高
+    % = 正文/2，主栏欠满但平衡）。
+    % 有栏底补白（#6/#7 非空，2026-08-07）时: 栏高 = contentH − 版头——
+    % 正文 + \vss 弹性填充 + \mainbrief 贴底，正好填满；切分仍按正文/2
+    % （内容平衡），vss 吸收剩余空间。
+    \ifx\empty#6\empty
+      \ifx\empty#7\empty
+        \setlength{\linotype@colH}{\linotype@splitH}%
+        \setlength{\linotype@colH}{\minof{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox\relax}}%
+      \else
+        % 预留 12pt: vtop 的 dp（简讯末行 descender）溢出 colH，实测 ~10pt，
+        % 触发 main column vsplit 截断切掉简讯末行；预留后 版头+colH+dp ≤ contentH
+        \setlength{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-12pt\relax}%
+      \fi
+    \else
+      \setlength{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-12pt\relax}%
     \fi
-    % 并排两栏（vtop to colH 固定栏高 + vss 吸收——单栏视觉高 = colH）
+    % vsplit 切两栏（按 splitH 内容平衡切分，超高 → Overfull 警告）
+    \setbox\linotype@splitbox=\vsplit\linotype@mainbox to\linotype@splitH
+    \ifdim\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox>\linotype@splitH
+      \typeout{Overfull mainstory: 内容超高，截断 \the\dimexpr\ht\linotype@mainbox+\dp\linotype@mainbox-\linotype@splitH\relax}%  % 血泪 #37: \the 已含 pt，再拼 pt 变 744.34ptpt
+      \setbox\linotype@mainbox=\vsplit\linotype@mainbox to\linotype@splitH
+    \fi
+    % 并排两栏（vtop to colH 固定栏高 + vss 吸收——单栏视觉高 = colH；
+    % 2026-08-07: 栏底补白 #6/#7 排在 \vss 后——主条不足 colH 时简讯贴栏底）
     \par\noindent\hbox to\mainW{%
-      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@splitbox\vss}%
+      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@splitbox\vss\mainbrief{#6}}%
       \hfil
-      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@mainbox\vss}%
+      \vtop to\linotype@colH{\hsize\linotype@halfW \linewidth\linotype@halfW \storybody\unvbox\linotype@mainbox\vss\mainbrief{#7}}%
     }%
     \par\vspace{1mm}%
   }%

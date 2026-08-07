@@ -52,6 +52,7 @@ audit.js 的 FILL 只检查"最深油墨位置"，会漏掉列内空白带（例
 import argparse
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -147,10 +148,21 @@ def resolve_layout(args, zone_name: str):
     sheets = data.get("sheets", {})
     layout = data.get("layout", {})
     stem = os.path.splitext(os.path.basename(args.image))[0]
-    if stem not in sheets or zone_name not in ("左半版", "右半版"):
+    # 2026-08-07 修复（协议断裂）: build.py 渲染 out-v-1.png/out-v-2.png
+    # （页码），sheets = {front:[页1两版], back:[页2两版]}。页码 → 页 key；
+    # 旧版 sheets.front=4 版 + stem 直接匹配永远失败 → 回退像素启发式 →
+    # main-aside 版头右侧空白误报。支持两种命名：out-v-N（页码）或页名直配。
+    m = re.search(r"-v-(\d+)$", stem)
+    if m:
+        page_idx = int(m.group(1)) - 1
+        keys = [k for k in sheets.keys() if k in ("front", "back")]
+        page_key = keys[page_idx] if page_idx < len(keys) else None
+    else:
+        page_key = stem if stem in sheets else None
+    if not page_key or zone_name not in ("左半版", "右半版"):
         return None, "像素启发式(无匹配布局表)"
     idx = 0 if zone_name == "左半版" else 1
-    plates = sheets[stem]
+    plates = sheets.get(page_key, [])
     if idx >= len(plates):
         return None, "像素启发式(布局表缺版)"
     pid = plates[idx]
@@ -171,8 +183,28 @@ def analyze(a: np.ndarray, x0_px: int, x1_px: int, top_px: int, bot_px: int,
     for c in range(cols):
         x0 = x0_px + int(c * col_w_px)
         x1 = x0_px + int((c + 1) * col_w_px)
-        gap_start = None
+        # 版头区终点（2026-08-07）: 跳过每列第一个 ≥min_gap 空白带——
+        # 版头（kicker/headline/deck/byline）左对齐堆叠，右侧留白 + 版头
+        # 内部行距是报纸版头的正常设计（P1 main-aside 实测 deck 下 15mm
+        # 空白 = byline 右半 + 正文前间距，墨密度 0%）。跳过它避免误报；
+        # 版头后的正文区空白带照常检测。
+        scan_start = top_px
+        gap_run = None
         for y in range(top_px, bot_px, band_px):
+            band = a[y : y + band_px, x0:x1]
+            if band.size == 0:
+                continue
+            ratio = (band < 1.0).mean()
+            if ratio <= band_ink:
+                if gap_run is None:
+                    gap_run = y
+            else:
+                if gap_run is not None and (y - gap_run) / pxmm >= min_gap:
+                    scan_start = y  # 版头区终点 = 首个长空白带后的墨
+                    break
+                gap_run = None
+        gap_start = None
+        for y in range(scan_start, bot_px, band_px):
             band = a[y : y + band_px, x0:x1]
             if band.size == 0:
                 continue

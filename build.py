@@ -77,6 +77,7 @@ def parse_plate(text: str) -> dict:
     """解析单个 plates/pN.md → 结构化 dict。"""
     p = {'kicker': '', 'headline': '', 'subheadline': '', 'deck': '',
          'byline': '', 'body': [], 'pullquote': '', 'briefs': [],
+         'mainbriefs': [],  # 2026-08-07: 主栏底部补白简讯（MAINBRIEFS 段，main-aside 用）
          'stories': [], 'layout': '', 'columns': '', 'expanded': '',
          'image': '', 'imagewidth': '1.0', 'imagecaption': ''}  # 图片: IMAGE 路径 / IMAGEWIDTH 比例(0-1) / IMAGECAPTION 图注
     lines = text.split('\n')
@@ -121,6 +122,10 @@ def parse_plate(text: str) -> dict:
             p['pullquote'] = tex_escape(strip_field(ln[10:])); section = 'meta'
         elif up.startswith('BRIEFS:'):
             section = 'briefs'
+        elif up.startswith('MAINBRIEFS:'):
+            # 2026-08-07: 主栏底部补白简讯段（P1 main-aside 用，前 2 条进
+            # \mainstory 第 6/7 参 → 两栏底部）
+            section = 'mainbriefs'
         elif up.startswith('STORY-B:') or up.startswith('STORY-C:'):
             if story: p['stories'].append(story)
             story = {'headline': tex_escape(strip_field(ln.split(':', 1)[1])), 'body': []}
@@ -134,6 +139,8 @@ def parse_plate(text: str) -> dict:
                 p['body'].append(tex_escape(strip_field(ln)))
             elif section == 'briefs':
                 if ln.strip(): p['briefs'].append(tex_escape(strip_field(ln)))
+            elif section == 'mainbriefs':
+                if ln.strip(): p['mainbriefs'].append(tex_escape(strip_field(ln)))
             elif section == 'story' and story is not None:
                 story['body'].append(tex_escape(strip_field(ln)))
     if story: p['stories'].append(story)
@@ -156,8 +163,13 @@ def render_plate(p: dict, idx: int) -> str:
         if p['pullquote']:
             body += r'\par ' + r'\pullquote{' + p['pullquote'] + '}'
         out.append(r'\begin{mainaside}')
+        # 2026-08-07: MAINBRIEFS 前 2 条 → \mainstory 第 6/7 参（主栏底部补白）
+        mb = p['mainbriefs'] if p['mainbriefs'] else ['', '']
+        mb_l = mb[0] if len(mb) > 0 else ''
+        mb_r = mb[1] if len(mb) > 1 else ''
         out.append(r'\mainstory{' + p['kicker'] + '}{' + p['headline'] + '}{'
-                   + p['deck'] + '}{' + p['byline'] + '}{' + body + '}')
+                   + p['deck'] + '}{' + p['byline'] + '}{' + body + '}'
+                   + '{' + mb_l + '}{' + mb_r + '}')
         for st in p['stories']:
             st_body = _join_body(st['body'])
             out.append(r'\asidestory{' + st['headline'] + '}{' + st.get('byline', '')
@@ -310,11 +322,24 @@ def generate_tex(plates_dir: str, docopts: str, clsname: str) -> tuple:
         layouts[f'p{i}'] = 'multi' if p['layout'] == 'main-aside' else 'single'
     return '\n'.join(out), layouts
 
-def write_tex(output: str, tex_text: str, layouts: dict) -> None:
-    """写 .tex + layout.json（pixelcheck 消费）。"""
+def write_tex(output: str, tex_text: str, layouts: dict, docopts: str = '') -> None:
+    """写 .tex + layout.json（pixelcheck 消费）。
+
+    2026-08-07 修复（pixelcheck 协议断裂）: sheets 必须按页分——
+    A3 双版 2 页: front=[页1两版] back=[页2两版]；此前把 4 版全塞 front，
+    pixelcheck resolve_layout 的 stem 匹配永远失败 → 回退像素启发式 →
+    main-aside 版头右侧空白误报（P1 列2 82-101mm 假 FAIL，实测墨 9.5%）。
+    """
     with open(output, 'w', encoding='utf-8') as f:
         f.write(tex_text)
-    layout_json = {'sheets': {'front': list(layouts.keys())}, 'layout': layouts}
+    opts = parse_docopts(docopts)
+    dual = opts.get('plates') == '2'
+    plates = list(layouts.keys())
+    if dual and len(plates) >= 4:
+        sheets = {'front': plates[:2], 'back': plates[2:]}
+    else:
+        sheets = {'front': plates}
+    layout_json = {'sheets': sheets, 'layout': layouts}
     out_dir = os.path.dirname(os.path.abspath(output))
     with open(os.path.join(out_dir, 'layout.json'), 'w', encoding='utf-8') as f:
         json.dump(layout_json, f, ensure_ascii=False, indent=1)
@@ -426,7 +451,7 @@ def autofit(plates_dir: str, output: str, docopts: str, clsname: str) -> int:
         d['bottommargin'] = f'{bm_mm:g}mm'
         cur = docopts_to_str(d)
         tex_text, layouts = generate_tex(plates_dir, cur, clsname)
-        write_tex(output, tex_text, layouts)
+        write_tex(output, tex_text, layouts, cur)
         try:
             log = compile_tex(output)
         except FileNotFoundError:
@@ -705,7 +730,7 @@ def main() -> int:
     code = 0
     if args.no_autofit:
         tex_text, layouts = generate_tex(args.plates_dir, args.docopts, args.clsname)
-        write_tex(args.output, tex_text, layouts)
+        write_tex(args.output, tex_text, layouts, args.docopts)
         n = len([f for f in os.listdir(args.plates_dir) if f.endswith('.md')])
         print(f'已生成 {args.output} ({n} 版, --no-autofit)')
     else:

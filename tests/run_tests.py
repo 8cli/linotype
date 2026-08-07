@@ -323,6 +323,35 @@ Aside story body with sentences.
     report('归属 BYLINE-B 编译', ok, '' if ok else log[-150:])
 
 
+def test_mainbriefs(tmp: str) -> None:
+    """主栏补白（2026-08-07 用户要求: P1 主栏底部空 37-41mm）: MAINBRIEFS 段
+    → \mainstory 6/7 参 → 编译通过 + 栏底补白宏生成。"""
+    write_plate(tmp, 'p1.md', """LAYOUT: main-aside
+KICKER: Test
+HEADLINE: Main Story with Enough Body
+BYLINE: By Jane Doe · Example News · Aug 6, 2026
+BODY:
+Main story body paragraph one with enough words to fill the main column in a dual column balanced split layout.
+Paragraph two continues with additional sentences to make the main story genuinely long enough for the split.
+MAINBRIEFS:
+**Brief Left:** Left column bottom brief with attribution — Example News, Aug 6, 2026.
+**Brief Right:** Right column bottom brief with attribution — Example News, Aug 6, 2026.
+BRIEFS:
+**Aside Brief:** Aside brief item — Example News, Aug 6, 2026.
+""")
+    r = run(['python3', 'build.py', 'plates/', 'mb.tex',
+             '--docopts', 'paper=a3,landscape,columns=3,plates=1', '--no-autofit'], cwd=tmp)
+    tex = open(os.path.join(tmp, 'mb.tex'), encoding='utf-8').read()
+    has_main = (r'\mainstory{Test}{Main Story with Enough Body}{}{By Jane Doe · Example News · Aug 6, 2026}'
+                in tex and r'{\textbf{Brief Left:} Left column bottom brief with attribution — Example News, Aug 6, 2026.}'
+                in tex and r'{\textbf{Brief Right:} Right column bottom brief with attribution — Example News, Aug 6, 2026.}'
+                in tex)
+    report('主栏补白 MAINBRIEFS 解析', r.returncode == 0 and has_main,
+           'mainstory 6/7 参' if has_main else '未生成!')
+    ok, log = xelatex(tmp, 'mb.tex')
+    report('主栏补白 编译', ok, '' if ok else log[-150:])
+
+
 def test_image_support(tmp: str) -> None:
     r"""A 图片支持: IMAGE 字段 → \photo 生成 + 正常图编译 + 超大图溢出检测。"""
     # 创建测试图（用 PIL 或纯色 PPM）
@@ -381,6 +410,7 @@ def main() -> int:
     test_autofit_disable(tmp)
     test_mainaside_structural(tmp)
     test_story_byline(tmp)
+    test_mainbriefs(tmp)
     test_image_support(tmp)
 
     print(f'\n{len(PASSED)} PASS, {len(FAILED)} FAIL')
