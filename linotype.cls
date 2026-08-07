@@ -314,6 +314,9 @@
 
 % 副标题
 \newcommand{\subheadline}[1]{\par\noindent{\fontdisplay\fontsize{\dimexpr\linotype@bs*158/100\relax}{\dimexpr\linotype@bs*179/100\relax}\selectfont#1\par\vspace{0.5mm}}}
+% 副条署名（2026-08-07 用户要求: 日期/站点/记者）——等宽多栏 STORY-B 用，
+% 与 \byline 同款小字但更紧凑（栏窄）。侧栏由 \asidestory 内嵌渲染。
+\newcommand{\storybyline}[1]{\par\noindent{\fontsans\fontsize{\dimexpr\linotype@bs*76/100\relax}{\dimexpr\linotype@bs*91/100\relax}\selectfont #1\par\vspace{0.5mm}}}
 
 % 导语
 \newcommand{\deck}[1]{\par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*158/100\relax}{\dimexpr\linotype@bs*195/100\relax}\selectfont\itshape#1\par\vspace{0.5mm}}}
@@ -467,11 +470,13 @@
 }
 
 % 侧栏故事: 渲染到临时盒 → 追加进 \linotype@asidecol（mainaside 结束统一截断）
-\newcommand{\asidestory}[2]{%
+% 2026-08-07: 3 参 {标题}{署名}{正文}——副条带日期/站点/记者（BYLINE-B）
+\newcommand{\asidestory}[3]{%
   \setbox\linotype@tmpbox=\vbox{%
     \hsize\asideW \linewidth\asideW
     \subheadline{#1}%
-    \par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*95/100\relax}{\dimexpr\linotype@bs*123/100\relax}\selectfont #2}%
+    \par\noindent{\fontsans\fontsize{\dimexpr\linotype@bs*74/100\relax}{\dimexpr\linotype@bs*89/100\relax}\selectfont #2}\par\vspace{0.5mm}%
+    \par\noindent{\fontbody\fontsize{\dimexpr\linotype@bs*95/100\relax}{\dimexpr\linotype@bs*123/100\relax}\selectfont #3}%
     \vspace{1.5mm}%
   }%
   \global\setbox\linotype@asidecol=\vbox{\unvbox\linotype@asidecol\unvbox\linotype@tmpbox}%

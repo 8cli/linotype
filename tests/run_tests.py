@@ -204,15 +204,20 @@ def test_autofit_overflow(tmp: str) -> None:
            '找到收敛' if '✅ 收敛' in out else out[-200:])
     if os.path.exists(os.path.join(tmp, 'af_over.log')):
         log = open(os.path.join(tmp, 'af_over.log'), encoding='utf-8').read()
-        # 2026-08-06 血泪 #55: 微超 truncated < 5% 是 vsplit 兜底的设计内
-        # 行为（autofit 已收敛 + 退出码 0）——只有 >5% 严重截断才算未收敛。
-        severe = any(
-            float(m.group(2)) > float(m.group(1)) * 0.05
-            for m in re.finditer(
+        # 2026-08-06：断言从"无 Overfull 行"改为"无严重溢出（truncated > 5%）"——
+        # 与 parse_feedback/autofit 判定同语义。收敛点（最大非溢出字号）允许
+        # ≤5% 微小截断（vsplit 兜底吸收，架构文档明示为设计内行为）；此前
+        # 测试靠 af_over.log 停留在"最后一次 mid 编译"偶然通过，build.py
+        # 修复（收敛后重编译 lo）后日志反映真实收敛点，4.6% 截断暴露。
+        serious = False
+        for m in re.finditer(
                 r'Overfull plate: content [\d.]+pt\s*> contentH ([\d.]+)pt, truncated ([\d.]+)',
-                log))
-        report('autofit 溢出收敛(0 严重Overfull)', not severe,
-               '无严重溢出' if not severe else '仍有 >5% 截断!')
+                log):
+            ch, tr = float(m.group(1)), float(m.group(2))
+            if tr > ch * 0.05:
+                serious = True
+        report('autofit 溢出收敛(无严重溢出)', not serious,
+               '无严重溢出' if not serious else '仍有严重溢出!')
 
 
 def test_autofit_sparse(tmp: str) -> None:
@@ -282,6 +287,42 @@ BRIEFS:
            '无溢出' if not overfull else '仍有溢出!(结构性缺陷未修)')
 
 
+def test_story_byline(tmp: str) -> None:
+    """归属增强（2026-08-07）: BYLINE-B 字段 → \asidestory 3 参 / \storybyline 生成 + 编译通过。"""
+    write_plate(tmp, 'p1.md', """LAYOUT: main-aside
+KICKER: Test
+HEADLINE: Main Story
+BYLINE: By Jane Doe · Example News · Aug 6, 2026
+BODY:
+Main story body with some text to fill the main column.
+STORY-B: Secondary Story
+BYLINE-B: By John Smith · Example News · Aug 5, 2026
+Secondary story body text with a few sentences.
+BRIEFS:
+**Brief One:** First brief item — Example News, Aug 6, 2026.
+""")
+    write_plate(tmp, 'p2.md', """KICKER: Test 2
+HEADLINE: Second Plate
+BYLINE: By Jane Doe · Example News · Aug 6, 2026
+BODY:
+Body text for plate two.
+STORY-B: Aside Story
+BYLINE-B: By Alice · Example News · Aug 6, 2026
+Aside story body with sentences.
+""")
+    r = run(['python3', 'build.py', 'plates/', 'sb.tex',
+             '--docopts', 'paper=a3,landscape,columns=3,plates=2', '--no-autofit'], cwd=tmp)
+    tex = open(os.path.join(tmp, 'sb.tex'), encoding='utf-8').read()
+    has_aside = r'\asidestory{Secondary Story}{By John Smith · Example News · Aug 5, 2026}{' in tex
+    has_story = r'\storybyline{By Alice · Example News · Aug 6, 2026}' in tex
+    report('归属 BYLINE-B 解析(main-aside)', r.returncode == 0 and has_aside,
+           'asidestory 3 参' if has_aside else '未生成!')
+    report('归属 BYLINE-B 解析(等宽栏)', has_story,
+           'storybyline 生成' if has_story else '未生成!')
+    ok, log = xelatex(tmp, 'sb.tex')
+    report('归属 BYLINE-B 编译', ok, '' if ok else log[-150:])
+
+
 def test_image_support(tmp: str) -> None:
     r"""A 图片支持: IMAGE 字段 → \photo 生成 + 正常图编译 + 超大图溢出检测。"""
     # 创建测试图（用 PIL 或纯色 PPM）
@@ -339,6 +380,7 @@ def main() -> int:
     test_autofit_boundary(tmp)
     test_autofit_disable(tmp)
     test_mainaside_structural(tmp)
+    test_story_byline(tmp)
     test_image_support(tmp)
 
     print(f'\n{len(PASSED)} PASS, {len(FAILED)} FAIL')

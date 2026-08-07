@@ -103,7 +103,7 @@ def parse_plate(text: str) -> dict:
             if section == 'story':
                 # 副故事 headline
                 if story: p['stories'].append(story)
-                story = {'headline': strip_field(ln[9:]), 'body': []}
+                story = {'headline': strip_field(ln[9:]), 'byline': '', 'body': []}
                 section = 'story'
             else:
                 p['headline'] = tex_escape(strip_field(ln[9:])); section = 'meta'
@@ -113,6 +113,10 @@ def parse_plate(text: str) -> dict:
             p['deck'] = tex_escape(strip_field(ln[5:])); section = 'meta'
         elif up.startswith('BYLINE:'):
             p['byline'] = tex_escape(strip_field(ln[7:])); section = 'meta'
+        elif up.startswith('BYLINE-B:'):
+            # 2026-08-07 用户要求: 副条(STORY-B)独立署名（日期/站点/记者）
+            if story is not None:
+                story['byline'] = tex_escape(strip_field(ln[9:])); section = 'story'
         elif up.startswith('PULLQUOTE:'):
             p['pullquote'] = tex_escape(strip_field(ln[10:])); section = 'meta'
         elif up.startswith('BRIEFS:'):
@@ -156,7 +160,8 @@ def render_plate(p: dict, idx: int) -> str:
                    + p['deck'] + '}{' + p['byline'] + '}{' + body + '}')
         for st in p['stories']:
             st_body = _join_body(st['body'])
-            out.append(r'\asidestory{' + st['headline'] + '}{' + st_body + '}')
+            out.append(r'\asidestory{' + st['headline'] + '}{' + st.get('byline', '')
+                       + '}{' + st_body + '}')
         if p['briefs']:
             label = 'IN BRIEF'
             items = p['briefs'][:3]
@@ -208,6 +213,8 @@ def render_plate(p: dict, idx: int) -> str:
                 if st['headline']:
                     out.append(r'\vspace{1mm}')
                     out.append(r'\subheadline{' + st['headline'] + '}')
+                if st.get('byline'):
+                    out.append(r'\storybyline{' + st['byline'] + '}')
                 for para in st['body']:
                     out.append('')
                     out.append(r'\noindent ' + para if not para.startswith('\\noindent') else para)
