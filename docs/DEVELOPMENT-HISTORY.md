@@ -209,3 +209,31 @@ P1 main column bottom: 193.7 → 254.5mm (blank eliminated)
 - **Every measurement above** is reproducible: run `build.py` on the examples or the test suite.
 
 The design debt we chose to accept: no text-wrap images, autofit doesn't scale image width, and the column knob is a U-curve for extreme content (honest failure reporting instead of silent damage).
+
+---
+
+## Phase 7 — 2026-08-07: attribution enrichment + main-column fillers (user QA)
+
+Real-production user QA rounds: (1) "add date/source/reporter to stories", (2) "P1 bottom-left has space, why no briefs?", (3) "P1 bottom-left content overlaps". Each exposed a real gap.
+
+### What was added
+
+- **Attribution**: BYLINE-B (secondary-story byline) parsed by build.py → `\asidestory` 3-arg / new `\storybyline`; `byline_of` in build_plates.py formats `By {reporter} · {site} · {date}` (multi-author `;` cleaned, epoch→`Aug 6, 2026`).
+- **Main-column fillers**: `\mainstory` now takes 7 args {…}{leftbrief}{rightbrief}; new `\mainbrief` bottom-of-column brief; build.py parses `MAINBRIEFS:` section; P1 briefs split 2 main-bottom + 2 aside.
+- **UI/footer junk filter** (build_plates `_is_junk`): VOA player-copy text, TASS footer, CSIS section pages, subscribe prompts — 26 removed from the 08-06 evening run.
+- **Visual protocol fix**: layout.json sheets now split by page (front=[p1,p2] back=[p3,p4]) matching PNG page names; pixelcheck skips each column's first ≥min_gap band (header zone right-side whitespace is normal design, not a column gap).
+
+### Bug log (34)
+
+| # | Symptom | Root cause | Fix |
+|---|---|---|---|
+| 34 | Main-column briefs overlap body bottom line (user: "content overlaps bottom-left") | 3 TeX traps: (a) `\setbox\A=\B` with `\B` a box-number integer → `A <box> was supposed to be here` aborts; (b) left/right briefs shared one box → right overwrote left at `\unvbox` time; (c) pure `\vss\mainbrief` compresses to 0 when body+brief > colH → brief glued to last body line | brief boxes measured → `\vsplit` to remaining space (colH − body − 3mm) → `\vskip 3mm plus 1fil` elastic bottom-anchor; separate `briefbox`/`briefboxR`; `\box\cutbox` reference |
+
+### What changed (measured)
+
+```
+P1 main column bottom: 37-41mm blank → 0.7/0.0mm (fillers bottom-anchored)
+P1 fill: 98% → 101%   P2 98%  P3 96%  P4 96% (all ≥95% acceptance)
+Overfull errors: 0   visual acceptance: both pages PASS
+regression: 30/30 (added test_mainbriefs) + imposer 58/58
+```
