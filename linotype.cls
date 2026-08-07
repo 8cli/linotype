@@ -225,6 +225,8 @@
 \newbox\linotype@maincol    % mainaside 主栏收集盒（2026-08-05 顶层化重构）
 \newbox\linotype@asidecol   % mainaside 侧栏收集盒
 \newbox\linotype@tmpbox     % 渲染临时盒
+\newlength\linotype@topused  % 版顶已占高度（\dateline 日期线记录；mainaside/版头预算减掉）
+\newlength\linotype@plateH   % 本版实际版心预算 = contentH − topused（mainaside 用）
 \newlength{\colGap}\setlength{\colGap}{3.75mm}
 \newlength{\colW}\newlength{\mainW}
 \newlength{\boundary}
@@ -289,15 +291,53 @@
   \noindent\rule{\contentW}{0.4pt}\\[3mm]
 }
 
-% 内页眉题条
+% 内页眉题条（2026-08-07 修 strut bug: \rule+\\ 段落行带 strut → 规则对间距
+% 5.1mm；改 \offinterlineskip + \hbox 行，规则对 0.5mm，几何精确）
 \newcommand{\sectionstrip}[2]{%
-  \noindent\rule{\contentW}{0.4pt}\\[1pt]
-  \noindent\rule{\contentW}{0.4pt}\\[1.5mm]
-  {\fontsans\fontsize{8pt}{10pt}\selectfont\addfontfeature{LetterSpace=12}%
-  \color{accent}\textbf{\MakeUppercase{#1}}%
-  \hfill\color{ink}\MakeUppercase{#2}}\\[1mm]
-  \noindent\rule{\contentW}{0.4pt}\\[1pt]
-  \noindent\rule{\contentW}{0.4pt}\\[3mm]
+  \par\noindent{\offinterlineskip
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip1pt
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip1.5mm
+    \hbox to\contentW{{\fontsans\fontsize{8pt}{10pt}\selectfont\addfontfeature{LetterSpace=12}%
+      \color{accent}\textbf{\MakeUppercase{#1}}}\hfil
+      {\fontsans\fontsize{8pt}{10pt}\selectfont\addfontfeature{LetterSpace=12}%
+      \color{ink}\MakeUppercase{#2}}}%
+    \vskip1mm
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip1pt
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip3mm
+  }%
+}
+
+% 版次日期线（第一版页顶，2026-08-07 用户要求: 每份报纸第一版加出版日期以便识别）:
+% 双细线 + 居中日期（LetterSpace 14 全大写）+ 双细线收尾，形如迷你报头日期线。
+% 高度记录到 \linotype@topused——mainaside/版头的版心预算必须减掉它:
+% 日期线 + 满版 mainaside 若不减预算，plate vsplit 切不动 mainaside 整盒
+% （只能全切或全留）→ 整个主栏被静默丢弃，只剩日期线。先排进临时盒量高、
+% 再 \unvbox 输出（量高和渲染同一盒，高度精确）。
+% 血泪（2026-08-07 probe）: 不能 \begin{center}（trivlist \topsep 把日期行推下
+% 8mm、块高虚增 3×）；不能 \rule + \\（\leavevmode 段落行带 strut，规则对间距
+% 5.1mm 而非 0.5mm）——\offinterlineskip + \hbox 行（无 strut）+ \hfil 居中，
+% 几何精确可控（总高 ~6.7mm），且 \vbox 内量高与渲染同一盒。
+\newcommand{\dateline}[1]{%
+  \setbox\linotype@tmpbox=\vbox{%
+    \offinterlineskip
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip1pt
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip1.5mm
+    \hbox to\contentW{\hfil{\fontsans\fontsize{8pt}{10pt}\selectfont
+      \addfontfeature{LetterSpace=14}\color{ink}\MakeUppercase{#1}}\hfil}%
+    \vskip1mm
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip1pt
+    \hbox{\vrule width\contentW height0.4pt}%
+    \vskip3mm
+  }%
+  \global\linotype@topused=\dimexpr\ht\linotype@tmpbox+\dp\linotype@tmpbox\relax
+  \par\noindent\unvbox\linotype@tmpbox
 }
 
 % Kicker 眉题
@@ -380,8 +420,8 @@
   \global\@linotype@multicoltrue  % \global: \newif 的 true 是 \let 赋值，
                                   % \begin/\end 的 \begingroup 回滚 → plate 端
                                   % 读 false → vsplit 误触发丢 multicol
-  \global\@colht\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-4pt\relax
-  \global\@colroom\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-4pt\relax
+  \global\@colht\dimexpr\contentH-\linotype@topused-\ht\linotype@headerbox-\dp\linotype@headerbox-4pt\relax
+  \global\@colroom\dimexpr\contentH-\linotype@topused-\ht\linotype@headerbox-\dp\linotype@headerbox-4pt\relax
   \begin{multicols}{#1}%
   \storybody
 }{%
@@ -402,18 +442,21 @@
   \par\noindent%
   \setlength{\mainW}{\dimexpr 0.6666\contentW - 0.3333\colGap\relax}%  % 2c/3 − g/3 = 118.75mm（血泪 #28: 原 +g 溢出）
   \setlength{\asideW}{\dimexpr 0.3333\contentW - 0.6666\colGap\relax}% % c/3 − 2g/3 = 57.5mm
+  % 版心预算（2026-08-07）: contentH − 版顶已占（\dateline 日期线）——否则
+  % 日期线 + 满版 mainaside 超 contentH，plate vsplit 切不动整盒全丢。
+  \setlength{\linotype@plateH}{\dimexpr\contentH-\linotype@topused\relax}%
   \global\setbox\linotype@maincol=\vbox{}%          % 清空收集盒
   \global\setbox\linotype@asidecol=\vbox{}%
 }{%
-  % main 栏截断到版心（防 header + 两栏 > contentH 的残余溢出）
-  \ifdim\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax>\contentH
-    \typeout{Overfull main column: 内容 \the\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax > contentH \the\contentH，截断}%
-    \setbox\linotype@maincol=\vsplit\linotype@maincol to\dimexpr\contentH-10pt\relax
+  % main 栏截断到版心（防 header + 两栏 > plateH 的残余溢出）
+  \ifdim\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax>\linotype@plateH
+    \typeout{Overfull main column: 内容 \the\dimexpr\ht\linotype@maincol+\dp\linotype@maincol\relax > plateH \the\linotype@plateH，截断}%
+    \setbox\linotype@maincol=\vsplit\linotype@maincol to\dimexpr\linotype@plateH-10pt\relax
   \fi
   % aside 栏截断到版心（多 story 累计超高的兜底）
-  \ifdim\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol>\contentH
-    \typeout{Overfull aside column: 内容 \the\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol\relax > contentH \the\contentH，截断}%
-    \setbox\linotype@asidecol=\vsplit\linotype@asidecol to\dimexpr\contentH-10pt\relax
+  \ifdim\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol>\linotype@plateH
+    \typeout{Overfull aside column: 内容 \the\dimexpr\ht\linotype@asidecol+\dp\linotype@asidecol\relax > plateH \the\linotype@plateH，截断}%
+    \setbox\linotype@asidecol=\vsplit\linotype@asidecol to\dimexpr\linotype@plateH-10pt\relax
   \fi
   % 并排输出: vtop 自然高（不用 to\contentH——vtop to 的 ht 参考点偏移导致
   % hbox 总高超 5.5pt，且报纸允许列尾空隙=欠满，无需强制填满）
@@ -472,14 +515,14 @@
     \ifx\empty#6\empty
       \ifx\empty#7\empty
         \setlength{\linotype@colH}{\linotype@splitH}%
-        \setlength{\linotype@colH}{\minof{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox\relax}}%
+        \setlength{\linotype@colH}{\minof{\linotype@colH}{\dimexpr\contentH-\linotype@topused-\ht\linotype@headerbox-\dp\linotype@headerbox\relax}}%
       \else
         % 预留 12pt: vtop 的 dp（简讯末行 descender）溢出 colH，实测 ~10pt，
         % 触发 main column vsplit 截断切掉简讯末行；预留后 版头+colH+dp ≤ contentH
-        \setlength{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-12pt\relax}%
+        \setlength{\linotype@colH}{\dimexpr\contentH-\linotype@topused-\ht\linotype@headerbox-\dp\linotype@headerbox-12pt\relax}%
       \fi
     \else
-      \setlength{\linotype@colH}{\dimexpr\contentH-\ht\linotype@headerbox-\dp\linotype@headerbox-12pt\relax}%
+      \setlength{\linotype@colH}{\dimexpr\contentH-\linotype@topused-\ht\linotype@headerbox-\dp\linotype@headerbox-12pt\relax}%
     \fi
     % vsplit 切两栏（按 splitH 内容平衡切分，超高 → Overfull 警告）
     \setbox\linotype@splitbox=\vsplit\linotype@mainbox to\linotype@splitH
@@ -663,6 +706,7 @@
         \linewidth\contentW
         \textwidth\contentW
         \columnwidth\contentW
+        \global\linotype@topused=0pt%  % 2026-08-07: 版顶占用（\dateline）每版重置
         \setlength{\parindent}{1em}%
         \setlength{\parskip}{0pt}%
         \setlength{\columnsep}{\colGap}%

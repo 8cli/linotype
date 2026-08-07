@@ -76,7 +76,7 @@ def tex_escape(s: str) -> str:
 def parse_plate(text: str) -> dict:
     """解析单个 plates/pN.md → 结构化 dict。"""
     p = {'kicker': '', 'headline': '', 'subheadline': '', 'deck': '',
-         'byline': '', 'body': [], 'pullquote': '', 'briefs': [],
+         'byline': '', 'date': '', 'body': [], 'pullquote': '', 'briefs': [],
          'mainbriefs': [],  # 2026-08-07: 主栏底部补白简讯（MAINBRIEFS 段，main-aside 用）
          'stories': [], 'layout': '', 'columns': '', 'expanded': '',
          'image': '', 'imagewidth': '1.0', 'imagecaption': ''}  # 图片: IMAGE 路径 / IMAGEWIDTH 比例(0-1) / IMAGECAPTION 图注
@@ -114,6 +114,9 @@ def parse_plate(text: str) -> dict:
             p['deck'] = tex_escape(strip_field(ln[5:])); section = 'meta'
         elif up.startswith('BYLINE:'):
             p['byline'] = tex_escape(strip_field(ln[7:])); section = 'meta'
+        elif up.startswith('DATE:'):
+            # 2026-08-07 用户要求: 第一版页顶出版日期（\dateline 日期线）
+            p['date'] = tex_escape(strip_field(ln[5:])); section = 'meta'
         elif up.startswith('BYLINE-B:'):
             # 2026-08-07 用户要求: 副条(STORY-B)独立署名（日期/站点/记者）
             if story is not None:
@@ -151,6 +154,9 @@ def render_plate(p: dict, idx: int) -> str:
     out = []
     out.append(f'% ===== P{idx} =====')
     out.append(r'\begin{plate}')
+    if p['date']:
+        # 2026-08-07: 第一版出版日期线（版顶，\dateline 自动计入版心预算）
+        out.append(r'\dateline{' + p['date'] + '}')
     if p['layout'] == 'main-aside':
         # 主栏+侧栏: 主 story 进 main 2 栏, 副 stories 进 aside 第 3 栏
         # 2026-08-05 顶层化重构: mainaside 已占满版心时，通栏内容（pullquote/inbrief）

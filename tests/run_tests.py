@@ -352,6 +352,52 @@ BRIEFS:
     report('主栏补白 编译', ok, '' if ok else log[-150:])
 
 
+def test_dateline(tmp: str) -> None:
+    """版次日期线（2026-08-07 用户要求: 每份报纸第一版加出版日期）:
+    DATE 字段 → \dateline 生成（mainaside 之前）+ 编译 0 Overfull + PDF 文本
+    含日期与主条正文——后者防回归: 日期线高度若未计入版心预算，plate vsplit
+    切不动 mainaside 整盒 → 整个主栏静默丢弃（只剩日期线，无任何报错）。
+    """
+    write_plate(tmp, 'p1.md', """DATE: Aug 6, 2026
+LAYOUT: main-aside
+KICKER: Test
+HEADLINE: Dateline Main Story
+BYLINE: By Jane Doe · Example News · Aug 6, 2026
+BODY:
+Main story body with enough words to verify the main column survives the dateline height budget.
+Second paragraph adds more body text for the balanced split columns to fill.
+STORY-B: Aside
+BYLINE-B: By Alice · Example News · Aug 6, 2026
+Aside body text.
+BRIEFS:
+**Brief One:** First brief item — Example News, Aug 6, 2026.
+""")
+    r = run(['python3', 'build.py', 'plates/', 'dl.tex',
+             '--docopts', 'paper=a3,landscape,columns=3,plates=1', '--no-autofit'], cwd=tmp)
+    tex = open(os.path.join(tmp, 'dl.tex'), encoding='utf-8').read()
+    has_dl = r'\dateline{Aug 6, 2026}' in tex
+    before = has_dl and tex.index(r'\dateline') < tex.index(r'\begin{mainaside}')
+    report('版次日期线 DATE 解析', r.returncode == 0 and has_dl and before,
+           'dateline 在 mainaside 前' if before else '未生成/位置错!')
+    ok, log = xelatex(tmp, 'dl.tex')
+    report('版次日期线 编译', ok, '' if ok else log[-150:])
+    if not ok:
+        return
+    log_text = open(os.path.join(tmp, 'dl.log'), encoding='utf-8').read()
+    report('版次日期线 0 Overfull', 'Overfull plate' not in log_text,
+           '无溢出' if 'Overfull plate' not in log_text else '有溢出!')
+    # PDF 文本: 日期 + 主条正文都应在（vsplit 静默丢弃 mainaside 会被这里抓到）
+    tx = run(['pdftotext', 'dl.pdf', '-'], cwd=tmp)
+    if tx.returncode != 0:
+        report('版次日期线 文本存活', True, 'pdftotext 不可用，跳过')
+        return
+    txt = tx.stdout.replace('\n', ' ')
+    report('版次日期线 日期在 PDF', 'AUG 6, 2026' in txt.upper(),
+           '日期文本存在' if 'AUG 6, 2026' in txt.upper() else '日期丢失!')
+    report('版次日期线 主条存活', 'survives the dateline' in txt,
+           '主条正文存在' if 'survives the dateline' in txt else '主条被丢弃!')
+
+
 def test_image_support(tmp: str) -> None:
     r"""A 图片支持: IMAGE 字段 → \photo 生成 + 正常图编译 + 超大图溢出检测。"""
     # 创建测试图（用 PIL 或纯色 PPM）
@@ -411,6 +457,7 @@ def main() -> int:
     test_mainaside_structural(tmp)
     test_story_byline(tmp)
     test_mainbriefs(tmp)
+    test_dateline(tmp)
     test_image_support(tmp)
 
     print(f'\n{len(PASSED)} PASS, {len(FAILED)} FAIL')
