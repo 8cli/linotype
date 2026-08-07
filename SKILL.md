@@ -46,6 +46,8 @@ python3 ~/.claude/skills/linotype/scripts/pixelcheck.py page-1.png --layout auto
 ```
 LAYOUT: main-aside        # 可选: ''(等宽多栏,默认) | main-aside(主栏2栏+侧栏1栏)
 COLUMNS: 3                # 可选: 版独立列数（覆盖 --docopts 的全局 columns）
+DATE: Aug 6, 2026         # 可选: 出版日期线（\dateline 版顶双细线+居中日期，
+                          #   高度自动计入版心预算；第一版报头用，期次识别）
 EXPANDEDTITLE: 跨栏标题    # 可选: 全版宽标题，打破所有栏
 IMAGE: img.jpg            # 可选: 图片路径（相对 plates 目录或绝对）
 IMAGEWIDTH: 1.0           # 可选: 图宽占版宽比例 0-1（默认 1.0 全版宽）
@@ -59,6 +61,7 @@ BODY:                     # 正文段（段间空行）
 第一段...
 第二段...
 STORY-B: 副故事标题        # 可选，main-aside 布局的侧栏故事
+BYLINE-B: 副条署名         # 可选, STORY-B 的独立署名（等宽栏渲染为 \storybyline）
 副故事正文段...
 STORY-C: 副故事标题        # 可选
 PULLQUOTE: 引文            # 可选
@@ -66,6 +69,9 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 条目1...
 条目2...
 条目3...
+MAINBRIEFS:               # 可选, main-aside 主栏底部补白简讯（2026-08-07）
+主栏左栏补白条目...       # 前 2 条 → \mainstory 6/7 参 → 主栏两栏底部
+主栏右栏补白条目...
 ```
 
 **纪律**：只使用可核实的真实内容并标注信源（`Reuters reported` 等行内形式）；plates 是唯一事实源。
@@ -103,6 +109,7 @@ BRIEFS:                   # 可选, In Brief 摘要条（3 条）
 |---|---|
 | `\masthead{刊名}{期号}{标语}` | 报头（双细线 + 大刊名 + 期号 + 标语） |
 | `\sectionstrip{栏目}{日期}` | 内页眉题条 |
+| `\dateline{日期}` | 版次日期线（第一版页顶：双细线 + 居中日期 + 双细线；高度计入版心预算） |
 | `\kicker{眉题}` | 眉题（强调色全大写） |
 | `\headline{标题}` | 主标题（display 字体） |
 | `\subheadline{副题}` | 次标题 |
